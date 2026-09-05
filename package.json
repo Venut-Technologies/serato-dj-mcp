@@ -1,0 +1,30 @@
+{
+  "name": "serato-dj-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for the Serato DJ 4.x library",
+  "license": "MIT",
+  "author": "Mikhail Chereshnev <venuttv@gmail.com>",
+  "type": "module",
+  "bin": { "serato-dj-mcp": "dist/index.js" },
+  "files": ["dist"],
+  "engines": { "node": ">=22.16.0" },
+  "scripts": {
+    "build": "tsc",
+    "prepare": "npm run build",
+    "test": "vitest run",
+    "lint": "eslint src tests",
+    "format": "prettier --write src tests"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "eslint": "^9.0.0",
+    "prettier": "^3.0.0",
+    "typescript": "^7.0.2",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^4.1.11"
+  }
+}
