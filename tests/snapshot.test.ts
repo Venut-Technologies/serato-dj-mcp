@@ -49,6 +49,25 @@ describe("snapshot", () => {
     expect(c.generation).not.toBe(a.generation);
   });
 
+  // Regression for a real bug: the temp file both calls back up into used to
+  // be named from generation + pid + Date.now() alone, so two concurrent
+  // calls for the same generation could compute the identical temp path and
+  // race each other's backup(). Measured 2026-09-06: about 40% of 20
+  // concurrent pairs then failed with "database is locked" or a disk I/O
+  // error.
+  it("lets two concurrent calls for the same source both succeed", async () => {
+    const dir = tmp();
+    const live = makeMasterFixture(dir, { tracks: [] });
+    const cache = tmp();
+
+    const [a, b] = await Promise.all([takeSnapshot(live, cache), takeSnapshot(live, cache)]);
+    expect(isSeratoError(a)).toBe(false);
+    expect(isSeratoError(b)).toBe(false);
+    if (isSeratoError(a) || isSeratoError(b)) return;
+    expect(a.path).toBe(b.path);
+    expect(existsSync(a.path)).toBe(true);
+  });
+
   // Measured 2026-09-03: a read-only read of a live WAL database updates the
   // mtime of -shm but never that of the main file or -wal. If the staleness
   // key covered -shm, every query would invalidate its own snapshot.

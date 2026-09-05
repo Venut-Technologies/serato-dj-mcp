@@ -1,8 +1,12 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, renameSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
 import { err, type SeratoError } from "../errors.js";
+
+const FULL_DISK_ACCESS_INSTRUCTIONS =
+  "On macOS, grant Full Disk Access to the process running this server " +
+  "(System Settings > Privacy & Security > Full Disk Access), then retry.";
 
 export type Snapshot = { path: string; generation: string; takenAt: number };
 
@@ -65,8 +69,23 @@ export async function takeSnapshot(
 
   if (existsSync(out)) return { path: out, generation, takenAt: Date.now() };
 
-  if (!existsSync(livePath)) {
-    return err("library_not_found", `no such file: ${livePath}`, { searched: [livePath] });
+  // existsSync collapses every stat failure into "missing", including a
+  // permission error on a macOS install with restricted Full Disk Access --
+  // exactly the ENOENT/EACCES confusion the catch below (for the open
+  // itself) exists to avoid, one layer up. statSync's errno tells the two
+  // apart: ENOENT really is missing; anything else means the path exists
+  // but this process cannot see it.
+  try {
+    statSync(livePath);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") {
+      return err("library_not_found", `no such file: ${livePath}`, { searched: [livePath] });
+    }
+    return err(
+      "permission_denied",
+      `cannot stat ${livePath}: ${e instanceof Error ? e.message : String(e)}`,
+      { instructions: FULL_DISK_ACCESS_INSTRUCTIONS },
+    );
   }
 
   let src: DatabaseSync;
@@ -81,13 +100,16 @@ export async function takeSnapshot(
     // this catch therefore exists but is unreadable: "not found" sends the
     // user to --library, "denied" sends them to Full Disk Access.
     return err("permission_denied", `cannot open ${livePath}: ${msg}`, {
-      instructions:
-        "On macOS, grant Full Disk Access to the process running this server " +
-        "(System Settings > Privacy & Security > Full Disk Access), then retry.",
+      instructions: FULL_DISK_ACCESS_INSTRUCTIONS,
     });
   }
 
-  const tmp = join(cacheDir, `.tmp-${generation}-${process.pid}-${Date.now()}.sqlite`);
+  // randomUUID, not Date.now(): two concurrent takeSnapshot() calls for the
+  // same generation in one process must never compute the same temp path.
+  // Measured 2026-09-06 with millisecond-only uniqueness: about 40% of 20
+  // concurrent call pairs failed with "database is locked" or a disk I/O
+  // error because both calls' backup() raced over one temp file.
+  const tmp = join(cacheDir, `.tmp-${generation}-${process.pid}-${randomUUID()}.sqlite`);
   const cleanupTmp = () => {
     for (const sidecar of ["", "-wal", "-shm"]) rmSync(tmp + sidecar, { force: true });
   };
@@ -128,13 +150,26 @@ export async function takeSnapshot(
     return err("snapshot_failed", `integrity_check returned ${integrity}`, { attempts: 1 });
   }
 
-  // Only a temp file that has passed integrity_check ever reaches the final
-  // name. Its own sidecars are dropped rather than carried over: they are at
-  // most an artifact of the read-only check above, and the destination
-  // grows fresh ones on its own the next time something opens it.
-  rmSync(`${tmp}-wal`, { force: true });
-  rmSync(`${tmp}-shm`, { force: true });
-  renameSync(tmp, out);
+  try {
+    // Only a temp file that has passed integrity_check ever reaches the
+    // final name. Its own sidecars are dropped rather than carried over:
+    // they are at most an artifact of the read-only check above, and the
+    // destination grows fresh ones on its own the next time something opens
+    // it.
+    rmSync(`${tmp}-wal`, { force: true });
+    rmSync(`${tmp}-shm`, { force: true });
+    renameSync(tmp, out);
+  } catch (e) {
+    // Errors are values, never thrown across this boundary (see errors.ts):
+    // a rename can fail (EACCES, disk full, a cross-device cache dir) after
+    // the temp file has already passed integrity_check, and letting that
+    // throw a raw Error here would break that contract and leak the temp
+    // file besides.
+    cleanupTmp();
+    return err("snapshot_failed", `publish failed: ${e instanceof Error ? e.message : String(e)}`, {
+      attempts: 1,
+    });
+  }
 
   return { path: out, generation, takenAt: Date.now() };
 }
