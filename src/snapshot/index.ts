@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, renameSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
 import { err, type SeratoError } from "../errors.js";
@@ -44,6 +44,16 @@ function generationOf(livePath: string): string {
  *
  * The copy inherits journal_mode=wal and grows its own sidecars when opened;
  * that is fine, it lives in a writable cache directory of ours.
+ *
+ * Publishing is itself atomic: backup() writes to a temp file, which is
+ * integrity-checked and only then renamed to snap-<generation>.sqlite. That
+ * final name is therefore never created except by a passed integrity_check,
+ * so the reuse fast-path below can trust its mere existence instead of
+ * re-verifying it on every call -- a killed process or a failed backup
+ * leaves at most a stray temp file, never a poisoned entry at the final
+ * name. Fixed 2026-09-06: the previous version wrote straight to the final
+ * name and never cleaned it up on failure, so a truncated file from a failed
+ * attempt was served as a valid snapshot on the next call.
  */
 export async function takeSnapshot(
   livePath: string,
@@ -55,28 +65,38 @@ export async function takeSnapshot(
 
   if (existsSync(out)) return { path: out, generation, takenAt: Date.now() };
 
+  if (!existsSync(livePath)) {
+    return err("library_not_found", `no such file: ${livePath}`, { searched: [livePath] });
+  }
+
   let src: DatabaseSync;
   try {
     src = new DatabaseSync(livePath, { readOnly: true });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    // ENOENT and EACCES are different problems and must not collapse into one
-    // code: "not found" sends the user to --library, "denied" sends them to
-    // Full Disk Access.
-    if (/EACCES|permission denied|unable to open database file/i.test(msg)) {
-      return err("permission_denied", `cannot open ${livePath}: ${msg}`, {
-        instructions:
-          "On macOS, grant Full Disk Access to the process running this server " +
-          "(System Settings > Privacy & Security > Full Disk Access), then retry.",
-      });
-    }
-    return err("snapshot_failed", `cannot open ${livePath}: ${msg}`, { attempts: 1 });
+    // node:sqlite throws the identical "unable to open database file" for a
+    // missing path and for one that exists but can't be read, so the two
+    // cannot be told apart by message text -- that's why "missing" is ruled
+    // out above with a stat instead of a regex here. Anything that reaches
+    // this catch therefore exists but is unreadable: "not found" sends the
+    // user to --library, "denied" sends them to Full Disk Access.
+    return err("permission_denied", `cannot open ${livePath}: ${msg}`, {
+      instructions:
+        "On macOS, grant Full Disk Access to the process running this server " +
+        "(System Settings > Privacy & Security > Full Disk Access), then retry.",
+    });
   }
 
+  const tmp = join(cacheDir, `.tmp-${generation}-${process.pid}-${Date.now()}.sqlite`);
+  const cleanupTmp = () => {
+    for (const sidecar of ["", "-wal", "-shm"]) rmSync(tmp + sidecar, { force: true });
+  };
+
   try {
-    for (const sidecar of ["", "-wal", "-shm"]) rmSync(out + sidecar, { force: true });
-    await backup(src, out);
+    cleanupTmp();
+    await backup(src, tmp);
   } catch (e) {
+    cleanupTmp();
     return err("snapshot_failed", `backup failed: ${e instanceof Error ? e.message : String(e)}`, {
       attempts: 1,
     });
@@ -84,13 +104,17 @@ export async function takeSnapshot(
     src.close();
   }
 
-  let integrity = "";
+  let integrity: string;
   try {
-    const dst = new DatabaseSync(out, { readOnly: true });
-    integrity = (dst.prepare("PRAGMA integrity_check").get() as { integrity_check: string })
-      .integrity_check;
-    dst.close();
+    const dst = new DatabaseSync(tmp, { readOnly: true });
+    try {
+      integrity = (dst.prepare("PRAGMA integrity_check").get() as { integrity_check: string })
+        .integrity_check;
+    } finally {
+      dst.close();
+    }
   } catch (e) {
+    cleanupTmp();
     return err(
       "snapshot_failed",
       `snapshot unreadable: ${e instanceof Error ? e.message : String(e)}`,
@@ -100,8 +124,17 @@ export async function takeSnapshot(
     );
   }
   if (integrity !== "ok") {
+    cleanupTmp();
     return err("snapshot_failed", `integrity_check returned ${integrity}`, { attempts: 1 });
   }
+
+  // Only a temp file that has passed integrity_check ever reaches the final
+  // name. Its own sidecars are dropped rather than carried over: they are at
+  // most an artifact of the read-only check above, and the destination
+  // grows fresh ones on its own the next time something opens it.
+  rmSync(`${tmp}-wal`, { force: true });
+  rmSync(`${tmp}-shm`, { force: true });
+  renameSync(tmp, out);
 
   return { path: out, generation, takenAt: Date.now() };
 }
