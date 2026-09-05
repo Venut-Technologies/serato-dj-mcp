@@ -39,5 +39,10 @@ export function isSeratoError(value: unknown): value is SeratoError {
   const e = (value as { error?: unknown }).error;
   if (typeof e !== "object" || e === null) return false;
   const { code, message } = e as { code?: unknown; message?: unknown };
-  return typeof code === "string" && code in ERROR_CODES && typeof message === "string";
+  // Object.hasOwn, not `in`: `in` walks the prototype chain, so "toString"
+  // would otherwise be accepted as a valid code and the taxonomy would no
+  // longer be closed.
+  return (
+    typeof code === "string" && Object.hasOwn(ERROR_CODES, code) && typeof message === "string"
+  );
 }

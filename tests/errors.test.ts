@@ -19,6 +19,12 @@ describe("errors", () => {
     expect(isSeratoError({ error: "boom" })).toBe(false);
     expect(isSeratoError(null)).toBe(false);
     expect(isSeratoError({ tracks: [] })).toBe(false);
+    expect(isSeratoError({ error: null })).toBe(false);
+    // Object.prototype members are not own properties of ERROR_CODES: the `in`
+    // operator would walk the prototype chain and wrongly accept these.
+    expect(isSeratoError({ error: { code: "toString", message: "x" } })).toBe(false);
+    expect(isSeratoError({ error: { code: "constructor", message: "x" } })).toBe(false);
+    expect(isSeratoError({ error: { code: "hasOwnProperty", message: "x" } })).toBe(false);
   });
 
   it("carries every code the P1 surface can raise", () => {
