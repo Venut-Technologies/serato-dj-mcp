@@ -16,18 +16,19 @@ export function redactPath(p: string): string {
   return p === home || p.startsWith(`${home}/`) ? `~${p.slice(home.length)}` : p;
 }
 
-const ROOT_DB = "/Library/Application Support/Serato/Library/root.sqlite";
 const LOCATION_DB_SUFFIX = "/_Serato_/Library/location.sqlite";
 
 /**
  * Measured 2026-09-03: location.path is SQL NULL in every observed row, so
- * the volume root comes only from connection.database_uri.
- *   .../Library/root.sqlite                              -> "/"
- *   /Volumes/X/_Serato_/Library/location.sqlite          -> "/Volumes/X"
+ * the volume root comes only from connection.database_uri. The store's kind
+ * is carried by its filename: location.sqlite names a volume store (root is
+ * the path before /_Serato_/Library/), and root.sqlite names the boot-disk
+ * store (root is always /).
+ *   /Users/v/Library/Application Support/Serato/Library/root.sqlite    -> "/"
+ *   /Volumes/EXTDISK/_Serato_/Library/location.sqlite                    -> "/Volumes/EXTDISK"
  */
 export function volumeRootFromDatabaseUri(uri: string): string {
   if (uri.endsWith(LOCATION_DB_SUFFIX)) return uri.slice(0, -LOCATION_DB_SUFFIX.length);
-  if (uri.endsWith(ROOT_DB)) return "/";
   if (uri.endsWith("/root.sqlite")) return "/";
   throw new Error(`unrecognised database_uri: ${uri}`);
 }

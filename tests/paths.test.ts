@@ -43,4 +43,13 @@ describe("paths", () => {
     expect(isStreamingPortableId("streaming://beatport/12345678")).toBe(true);
     expect(isStreamingPortableId("Users/v/Music/a.flac")).toBe(false);
   });
+
+  it("throws for unrecognised database uris", () => {
+    expect(() => volumeRootFromDatabaseUri("/tmp/library.db")).toThrow(
+      /unrecognised database_uri: \/tmp\/library\.db/,
+    );
+    expect(() => volumeRootFromDatabaseUri("/Volumes/X/_Serato_/Library/other.sqlite")).toThrow(
+      /unrecognised database_uri: \/Volumes\/X\/_Serato_\/Library\/other\.sqlite/,
+    );
+  });
 });
