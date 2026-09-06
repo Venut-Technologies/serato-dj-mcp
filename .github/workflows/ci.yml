@@ -1,0 +1,41 @@
+name: CI
+on:
+  push: { branches: [main] }
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        # 22.16 is the declared floor: backup() from node:sqlite lands there.
+        # Declaring a floor without running on it is a guess.
+        os: [macos-latest, ubuntu-latest]
+        node: ["22.16", "24"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "${{ matrix.node }}" }
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "24" }
+      - run: npm ci
+      - run: npm run build
+      - name: Tarball carries dist and nothing else
+        run: |
+          npm pack --dry-run --json > pack.json
+          node -e "
+            const f = require('./pack.json')[0].files.map(x => x.path);
+            if (!f.includes('dist/index.js')) { console.error('dist/index.js missing'); process.exit(1); }
+            const leaked = f.filter(p => p.startsWith('tests/') || p.includes('.local-fixtures'));
+            if (leaked.length) { console.error('leaked: ' + leaked.join(', ')); process.exit(1); }
+            console.log('tarball ok, ' + f.length + ' files');
+          "
