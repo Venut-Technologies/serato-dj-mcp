@@ -32,13 +32,16 @@ export function createServer(cli: Cli): McpServer {
       title: "List Serato libraries",
       description: listLibrariesDescription,
       inputSchema: {},
-      // The SDK validates structuredContent against outputSchema only on the
-      // success path (it skips validation whenever CallToolResult.isError is
-      // true -- see validateToolOutput in @modelcontextprotocol/sdk's
-      // server/mcp.js), so an error response never has to fit this shape.
-      // Verified 2026-09-06 with a real Client over InMemoryTransport: both
-      // a success and an error call to this tool round-trip without the SDK
-      // throwing McpError(InvalidParams).
+      // outputSchema describes only the success payload. An error response
+      // never has to fit it: toCallToolResult() (../envelope.ts) never puts
+      // an error in structuredContent in the first place, so the MCP
+      // client's structuredContent validator -- which validates against
+      // this schema regardless of isError, contrary to its own comment --
+      // never sees one. Verified 2026-09-06 with a real Client over
+      // InMemoryTransport, calling listTools() (which builds that
+      // validator) before callTool(): a success call round-trips validated,
+      // and an error call round-trips as isError:true text with no
+      // structuredContent, so the validator is never invoked for it.
       outputSchema: listLibrariesOutput.shape,
       annotations: RO,
     },
@@ -55,6 +58,7 @@ export function createServer(cli: Cli): McpServer {
         title: "Run read-only SQL",
         description: runSqlDescription,
         inputSchema: runSqlInput.shape,
+        // Success-only, same reasoning as list_libraries's outputSchema above.
         outputSchema: runSqlOutput.shape,
         annotations: RO,
       },

@@ -41,10 +41,16 @@ describe("envelope", () => {
     expect(r.content[0].text.length).toBeLessThan(200);
   });
 
-  it("flags an error value and still returns it structurally", () => {
-    const r = toCallToolResult(err("busy", "locked", { retry_after_ms: 3000 }));
+  // An error must NOT ride in structuredContent: the MCP client validates
+  // whatever it finds there against the tool's outputSchema regardless of
+  // isError (see the comment on toCallToolResult), so an error placed there
+  // is destroyed rather than delivered. It travels as compact JSON in
+  // content instead, where no schema ever touches it.
+  it("flags an error value and carries it as JSON text, not structuredContent", () => {
+    const value = err("busy", "locked", { retry_after_ms: 3000 });
+    const r = toCallToolResult(value);
     expect(r.isError).toBe(true);
-    expect((r.structuredContent as { error: { code: string } }).error.code).toBe("busy");
-    expect(r.content[0].text).toContain("busy");
+    expect(Object.hasOwn(r, "structuredContent")).toBe(false);
+    expect(JSON.parse(r.content[0].text)).toEqual(value);
   });
 });

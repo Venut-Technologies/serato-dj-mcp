@@ -39,24 +39,44 @@ function summarise(value: Record<string, unknown>): string {
 }
 
 /**
- * content carries a short summary; the payload rides in structuredContent
- * with a declared outputSchema.
+ * content carries a short summary; a successful payload rides in
+ * structuredContent with a declared outputSchema.
  *
  * This is a trade, not a free win: a client without structured content
  * support sees the summary and loses the data. Accepted because the target
  * clients support it, and duplicating a 200-row page doubles the payload --
  * engine-dj-mcp puts the same object in both fields with two-space
  * indentation and declares no outputSchema at all.
+ *
+ * An error value never rides in structuredContent, on either tool: the MCP
+ * client validates whatever it finds there against the tool's outputSchema
+ * without checking isError -- its own comment claims otherwise ("Only
+ * validate structured content if present (not when there's an error)"), but
+ * the actual condition only tests presence. A real client always calls
+ * tools/list before calling a tool, which builds that validator (see
+ * cacheToolMetadata in the SDK's client), so an error placed in
+ * structuredContent is destroyed (MCP error -32602, "does not match the
+ * tool's output schema") instead of delivered. The client's own guard --
+ * `if (!result.structuredContent && !result.isError) throw ...` -- shows an
+ * error result with no structuredContent is the shape it expects, not an
+ * edge case. So the error rides as compact JSON in content instead, where
+ * no schema ever touches it. Cost: the model reads it as JSON text rather
+ * than as structured data.
  */
-export function toCallToolResult(value: unknown): {
-  content: { type: "text"; text: string }[];
-  structuredContent: Record<string, unknown>;
-  isError: boolean;
-} {
-  const isErr = isSeratoError(value);
+export function toCallToolResult(value: unknown):
+  | {
+      content: { type: "text"; text: string }[];
+      structuredContent: Record<string, unknown>;
+      isError: false;
+    }
+  | { content: { type: "text"; text: string }[]; isError: true } {
+  if (isSeratoError(value)) {
+    return { content: [{ type: "text", text: JSON.stringify(value) }], isError: true };
+  }
   const obj = value as Record<string, unknown>;
-  const text = isErr
-    ? `${(obj.error as { code: string }).code}: ${(obj.error as { message: string }).message}`
-    : summarise(obj);
-  return { content: [{ type: "text", text }], structuredContent: obj, isError: isErr };
+  return {
+    content: [{ type: "text", text: summarise(obj) }],
+    structuredContent: obj,
+    isError: false,
+  };
 }

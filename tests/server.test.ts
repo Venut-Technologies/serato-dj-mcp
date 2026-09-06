@@ -46,8 +46,16 @@ async function toolNamesOverTheWire(server: ReturnType<typeof createServer>): Pr
   }
 }
 
-/** Calls a tool over a real MCP client/server pair and returns its
- *  structuredContent, the same shape a real caller would see. */
+/**
+ * Calls a tool over a real MCP client/server pair and returns its logical
+ * payload -- structuredContent on success; on error there is no
+ * structuredContent (see toCallToolResult in ../src/envelope.ts), so the
+ * error object is parsed back out of the JSON text in content[0] instead.
+ *
+ * Does NOT call listTools() first, so it never builds the client's
+ * structuredContent validator -- see callToolAfterListingOverTheWire() below
+ * for the ordering that actually exercises it.
+ */
 async function callToolOverTheWire(
   server: ReturnType<typeof createServer>,
   name: string,
@@ -58,7 +66,33 @@ async function callToolOverTheWire(
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   try {
     const result = await client.callTool({ name, arguments: args });
-    return result.structuredContent as Record<string, unknown>;
+    if (result.structuredContent) return result.structuredContent as Record<string, unknown>;
+    const text = (result.content as { type: string; text: string }[])[0]?.text ?? "{}";
+    return JSON.parse(text);
+  } finally {
+    await client.close();
+  }
+}
+
+/**
+ * Calls a tool the way a real client does: tools/list first, then the call.
+ * client.listTools() runs cacheToolMetadata(), which is what builds the
+ * structuredContent validator in the first place -- a helper that skips
+ * this step (callToolOverTheWire() above) cannot exercise that validator at
+ * all, which is exactly the ordering dependence that let the original
+ * outputSchema-vs-error-response bug through review undetected.
+ */
+async function callToolAfterListingOverTheWire(
+  server: ReturnType<typeof createServer>,
+  name: string,
+  args: Record<string, unknown> = {},
+) {
+  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "test-client", version: "0.0.0" });
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    await client.listTools();
+    return await client.callTool({ name, arguments: args });
   } finally {
     await client.close();
   }
@@ -97,35 +131,42 @@ describe("server", () => {
     );
   });
 
-  // B1: both tools declare outputSchema. The SDK validates structuredContent
-  // against it on the success path (validateToolOutput in
-  // @modelcontextprotocol/sdk's server/mcp.js) -- if the declared shape did
-  // not match what these tools actually return, client.callTool() would
-  // reject with McpError(InvalidParams, "Output validation error: ...")
-  // instead of resolving. This exercises that over a real client, not just
-  // against the schema object directly.
+  // B1: both tools declare outputSchema. The client validates
+  // structuredContent against it once it has a validator cached, which only
+  // happens after listTools() (cacheToolMetadata) -- so this must call
+  // listTools() first, or it would exercise nothing (see
+  // callToolAfterListingOverTheWire()'s doc comment). If the declared shape
+  // did not match what these tools actually return, client.callTool() would
+  // reject with McpError(InvalidParams, "does not match the tool's output
+  // schema") instead of resolving.
   it("a successful list_libraries call validates against its declared outputSchema", async () => {
     const s = createServer(cli());
-    const out = await callToolOverTheWire(s, "list_libraries", {});
+    const result = await callToolAfterListingOverTheWire(s, "list_libraries", {});
+    expect(result.isError).toBeFalsy();
+    const out = result.structuredContent as Record<string, unknown>;
     expect(out.active).toEqual(expect.any(String));
     expect(Array.isArray(out.libraries)).toBe(true);
   });
 
   it("a successful run_sql call validates against its declared outputSchema", async () => {
     const s = createServer(cli({ allowRawSql: true }));
-    const out = await callToolOverTheWire(s, "run_sql", { sql: "SELECT 1 AS one" });
+    const result = await callToolAfterListingOverTheWire(s, "run_sql", { sql: "SELECT 1 AS one" });
+    expect(result.isError).toBeFalsy();
+    const out = result.structuredContent as Record<string, unknown>;
     expect(out.columns).toEqual(["one"]);
     expect(out.rows).toEqual([[1]]);
     expect(out.truncated).toBe(false);
     expect(out.generation).toEqual(expect.any(String));
   });
 
-  // The SDK skips outputSchema validation entirely when isError is true
-  // (validateToolOutput returns early on `result.isError`), so an error
-  // response never has to fit the success shape declared above -- verified
-  // here, not just read off the SDK source, because that early return is
-  // exactly the assumption B1's outputSchema addition depends on.
-  it("an error response is delivered even though it does not match either tool's outputSchema", async () => {
+  // An error response never carries structuredContent at all (see
+  // toCallToolResult in ../src/envelope.ts), so it never has to fit the
+  // success shape declared above -- and, unlike the two tests just above,
+  // this holds regardless of whether listTools() ran first. The dedicated
+  // regression tests further down make that ordering explicit; this one
+  // just confirms the error still arrives over the wire, using the simpler
+  // helper.
+  it("an error response is delivered without structuredContent", async () => {
     const s = createServer(cli({ allowRawSql: true }));
     const out = await callToolOverTheWire(s, "run_sql", { sql: "DELETE FROM asset" });
     expect(out.error).toMatchObject({ code: "invalid_argument" });
@@ -165,5 +206,41 @@ describe("server", () => {
       .details;
     expect(details?.searched).toEqual([dir]);
     expect(details?.candidates).toEqual([{ path: dir, version: "4.x", status: "unreadable" }]);
+  });
+
+  // Regression test for the outputSchema/error bug: the MCP client's
+  // structuredContent validator is only built once listTools() has run
+  // (cacheToolMetadata), and it validates whatever it finds in
+  // structuredContent against outputSchema without checking isError --
+  // contrary to its own comment ("Only validate structured content if
+  // present (not when there's an error)"). A real client always calls
+  // tools/list before its first tool call, so any test that skips
+  // listTools() (like callToolOverTheWire() above) cannot see this failure
+  // at all -- that ordering dependence is exactly what let the original bug
+  // through review. Calling listTools() first is therefore load-bearing:
+  // deleting it turns this from "would have caught the regression" into
+  // "passes either way". Fixed by never putting an error in
+  // structuredContent (see toCallToolResult in ../src/envelope.ts) rather
+  // than by widening outputSchema -- confirmed by reverting that change and
+  // re-running this test, which then fails with MCP error -32602 ("does not
+  // match the tool's output schema") instead of resolving.
+  it("an error from list_libraries survives a real client that already called listTools()", async () => {
+    const s = createServer(cli({ library: "/no/such/serato-library-dir" }));
+    const result = await callToolAfterListingOverTheWire(s, "list_libraries", {});
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toBeUndefined();
+    const payload = JSON.parse((result.content as { type: string; text: string }[])[0].text);
+    expect(payload.error.code).toBe("library_not_found");
+  });
+
+  it("an error from run_sql survives a real client that already called listTools()", async () => {
+    const s = createServer(cli({ allowRawSql: true }));
+    const result = await callToolAfterListingOverTheWire(s, "run_sql", {
+      sql: "DELETE FROM asset",
+    });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toBeUndefined();
+    const payload = JSON.parse((result.content as { type: string; text: string }[])[0].text);
+    expect(payload.error.code).toBe("invalid_argument");
   });
 });
