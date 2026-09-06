@@ -3,7 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Cli } from "./cli.js";
 import { discover } from "./discovery/index.js";
 import { toCallToolResult } from "./envelope.js";
-import { isSeratoError } from "./errors.js";
+import { err, isSeratoError } from "./errors.js";
 import { listLibraries, listLibrariesDescription } from "./tools/list-libraries.js";
 import { runSql, runSqlDescription, runSqlInput } from "./tools/run-sql.js";
 
@@ -51,7 +51,21 @@ export function createServer(cli: Cli): McpServer {
           roots: cli.roots.length ? cli.roots : undefined,
         });
         if (isSeratoError(found)) return toCallToolResult(found);
-        const lib = found.find((l) => l.version === "4.x" && l.status === "ok") ?? found[0];
+        const lib = found.find((l) => l.version === "4.x" && l.status === "ok");
+        if (!lib) {
+          // found[0] could be a 3.x directory or an unreadable master.sqlite;
+          // opening it anyway would surface a generic snapshot_failed instead
+          // of naming the real problem: no readable 4.x library exists here.
+          return toCallToolResult(
+            err("library_not_found", "no readable Serato 4.x library found", {
+              candidates: found.map((l) => ({
+                path: l.path,
+                version: l.version,
+                status: l.status,
+              })),
+            }),
+          );
+        }
         return toCallToolResult(
           await runSql(args, {
             livePath: join(lib.path, "master.sqlite"),

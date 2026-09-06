@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -46,6 +46,24 @@ async function toolNamesOverTheWire(server: ReturnType<typeof createServer>): Pr
   }
 }
 
+/** Calls a tool over a real MCP client/server pair and returns its
+ *  structuredContent, the same shape a real caller would see. */
+async function callToolOverTheWire(
+  server: ReturnType<typeof createServer>,
+  name: string,
+  args: Record<string, unknown> = {},
+): Promise<Record<string, unknown>> {
+  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "test-client", version: "0.0.0" });
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    const result = await client.callTool({ name, arguments: args });
+    return result.structuredContent as Record<string, unknown>;
+  } finally {
+    await client.close();
+  }
+}
+
 describe("server", () => {
   it("registers only list_libraries by default", () => {
     const s = createServer(cli());
@@ -77,5 +95,21 @@ describe("server", () => {
     expect((await toolNamesOverTheWire(withSql)).sort()).toEqual(
       registeredToolNames(withSql).sort(),
     );
+  });
+
+  // found[0] could be a 3.x directory: joining "master.sqlite" onto it and
+  // handing that to runSql() would surface a generic snapshot_failed instead
+  // of naming the real problem, which is that no readable 4.x library exists
+  // at any of the searched locations.
+  it("run_sql reports library_not_found, not a snapshot failure, when only a 3.x library exists", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "serato-3x-"));
+    writeFileSync(join(dir, "database V2"), "binary");
+    const s = createServer(cli({ library: dir, allowRawSql: true }));
+
+    const out = await callToolOverTheWire(s, "run_sql", { sql: "SELECT 1" });
+    expect(out.error).toMatchObject({ code: "library_not_found" });
+    expect((out.error as { details?: { candidates?: unknown[] } }).details?.candidates).toEqual([
+      { path: dir, version: "3.x", status: "ok" },
+    ]);
   });
 });

@@ -41,10 +41,12 @@ the flag wins. An unknown option is an error, not a no-op.
 
 Read this before deciding what to trust.
 
-- **Serato DJ 3.x is not supported.** It stores a binary `database V2` rather
-  than SQLite and is a different product for an integrator. It is detected and
-  refused, not half-read.
-- **Windows paths are implemented but untested.** Only macOS is exercised.
+- **Serato DJ 3.x is not supported.** It is recognised and reported as
+  `version: "3.x"`, but nothing reads it — it stores a binary `database V2`
+  rather than SQLite. No tool will return data from a 3.x library.
+- **Automatic discovery only knows the macOS layout.** On Windows, always
+  pass `--library` explicitly; the cache and state directories will not
+  follow Windows conventions either.
 - **Reads go through a snapshot**, so an answer reflects the library as of the
   last snapshot, not the current instant.
 - **No write tools exist in this build.**
