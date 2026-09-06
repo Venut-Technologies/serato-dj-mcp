@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import {
   CallToolRequestSchema,
@@ -8,9 +7,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { Cli } from "./cli.js";
-import { discover, searchLocations } from "./discovery/index.js";
 import { toCallToolResult } from "./envelope.js";
-import { err, isSeratoError } from "./errors.js";
 import {
   listLibraries,
   listLibrariesDescription,
@@ -113,46 +110,10 @@ export function createServer(cli: Cli): Server {
         runSqlInput,
         runSqlOutput,
       ),
-      call: async (raw) => {
-        const opts = { library: cli.library, roots: cli.roots.length ? cli.roots : undefined };
-        const found = discover(opts);
-        if (isSeratoError(found)) return toCallToolResult(found);
-        const lib = found.find((l) => l.version === "4.x" && l.status === "ok");
-        if (!lib) {
-          // found[0] could be a 3.x directory or an unreadable master.sqlite;
-          // opening it anyway would surface a generic snapshot_failed instead
-          // of naming the real problem: no readable 4.x library exists here.
-          const candidates = found.map((l) => ({
-            path: l.path,
-            version: l.version,
-            status: l.status,
-          }));
-          const detected3x = found.find((l) => l.version === "3.x");
-          // A 3.x-only result is not "not found": spec 6 and 12 promise a
-          // clear refusal naming the detected version, not a code that reads
-          // as "look elsewhere" and invites a retry against the same path.
-          if (detected3x) {
-            return toCallToolResult(
-              err("unsupported_version", "found a Serato 3.x library; only 4.x is supported", {
-                detected_version: detected3x.version,
-                candidates,
-              }),
-            );
-          }
-          return toCallToolResult(
-            err("library_not_found", "no readable Serato 4.x library found", {
-              searched: searchLocations(opts),
-              candidates,
-            }),
-          );
-        }
-        return toCallToolResult(
-          await runSql(raw, {
-            livePath: join(lib.path, "master.sqlite"),
-            cacheDir: cli.cacheDir,
-          }),
-        );
-      },
+      call: async (raw) =>
+        toCallToolResult(
+          await runSql(raw, { library: cli.library, roots: cli.roots, cacheDir: cli.cacheDir }),
+        ),
     });
   }
 

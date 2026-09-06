@@ -101,10 +101,7 @@ export function listLibraries(
   const args = parseToolArgs(listLibrariesInput, raw);
   if (isSeratoError(args)) return args;
 
-  const found = discover({
-    library: opts.library,
-    roots: opts.roots.length ? opts.roots : undefined,
-  });
+  const found = discover({ library: opts.library, roots: opts.roots });
   if (isSeratoError(found)) return found;
 
   const warnings: Warning[] = [];
