@@ -3,11 +3,29 @@ import { ok, toCallToolResult } from "../src/envelope.js";
 import { err } from "../src/errors.js";
 
 describe("envelope", () => {
+  // vitest's toEqual ignores keys whose value is `undefined`, so it alone
+  // cannot prove a key is *absent*: an implementation that unconditionally
+  // set `out.generation = generation` (leaving `generation: undefined`)
+  // would still satisfy `toEqual({ a: 1 })`. Object.hasOwn checks presence
+  // directly instead.
   it("attaches generation and warnings only when given", () => {
-    expect(ok({ a: 1 })).toEqual({ a: 1 });
-    expect(ok({ a: 1 }, "abc123")).toEqual({ a: 1, generation: "abc123" });
+    const bare = ok({ a: 1 });
+    expect(bare).toEqual({ a: 1 });
+    expect(Object.hasOwn(bare, "generation")).toBe(false);
+    expect(Object.hasOwn(bare, "warnings")).toBe(false);
+
+    const withGeneration = ok({ a: 1 }, "abc123");
+    expect(withGeneration).toEqual({ a: 1, generation: "abc123" });
+    expect(Object.hasOwn(withGeneration, "warnings")).toBe(false);
+
     const w = [{ code: "schema_unknown", message: "user_version 999" }];
     expect(ok({ a: 1 }, "abc123", w)).toEqual({ a: 1, generation: "abc123", warnings: w });
+
+    // An empty warnings array is a value, not undefined, so toEqual would
+    // not catch a regression that dropped the `warnings.length > 0` guard
+    // and attached `warnings: []`. Assert the omission directly.
+    const withEmptyWarnings = ok({ a: 1 }, "abc123", []);
+    expect(Object.hasOwn(withEmptyWarnings, "warnings")).toBe(false);
   });
 
   // The full object rides in structuredContent; content carries a short
