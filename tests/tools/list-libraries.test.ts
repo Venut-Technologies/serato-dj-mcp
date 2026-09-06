@@ -1,7 +1,8 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { DatabaseSync } from "node:sqlite";
+import { describe, expect, it, vi } from "vitest";
 import { isSeratoError } from "../../src/errors.js";
 import { listLibraries } from "../../src/tools/list-libraries.js";
 import { makeMasterFixture } from "../fixtures/make.js";
@@ -66,5 +67,31 @@ describe("list_libraries", () => {
     const r = listLibraries({ library: tmp(), roots: [] });
     expect(isSeratoError(r)).toBe(true);
     if (isSeratoError(r)) expect(r.error.code).toBe("library_not_found");
+  });
+
+  // node:sqlite opens lazily: for a master.sqlite that exists but isn't a
+  // valid database, `new DatabaseSync` succeeds and the throw comes only
+  // from the first statement that reads it, so the handle is already open
+  // when locationsOf()'s catch runs. Mirrors
+  // tests/discovery.test.ts's "closes the sqlite handle when reading an
+  // unreadable master.sqlite throws". Covers the locationsOf() site: with
+  // status "unreadable", the schema-introspection block never runs at all
+  // (its guard requires status "ok"), so the only handle open() here besides
+  // detectLibrary's own (already closed by src/discovery/index.ts) is
+  // locationsOf()'s -- this fails at 1 close if its `finally` is removed,
+  // and passes at 2 with it.
+  it("closes the locations handle when master.sqlite cannot be read there", () => {
+    const dir = tmp();
+    writeFileSync(join(dir, "master.sqlite"), "not sqlite");
+    const closeSpy = vi.spyOn(DatabaseSync.prototype, "close");
+    try {
+      const r = listLibraries({ library: dir, roots: [] });
+      if (isSeratoError(r)) throw new Error("unexpected error");
+      expect(r.libraries[0].status).toBe("unreadable");
+      expect(r.libraries[0].locations).toEqual([]);
+      expect(closeSpy).toHaveBeenCalledTimes(2);
+    } finally {
+      closeSpy.mockRestore();
+    }
   });
 });
