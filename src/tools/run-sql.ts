@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
+import { parseToolArgs } from "../args.js";
 import { ok, type Warning, warningSchema } from "../envelope.js";
 import { err, isSeratoError, type SeratoError } from "../errors.js";
 import { takeSnapshot } from "../snapshot/index.js";
@@ -162,8 +163,16 @@ export function guardSql(sql: string): null | SeratoError {
   return null;
 }
 
+/**
+ * `raw` is whatever the caller sent, unparsed: the arguments of a tool are
+ * validated here, by the tool that owns the schema, rather than by the
+ * transport above it (see parseToolArgs in ../args.ts and the note on
+ * dispatch in ../server.ts). Calling this function directly -- a test, a
+ * future in-process caller -- therefore gets the same validation and the
+ * same `invalid_argument` value as a call arriving over MCP.
+ */
 export async function runSql(
-  args: { sql: string; params?: (string | number | null)[]; limit?: number },
+  raw: unknown,
   ctx: { livePath: string; cacheDir: string },
 ): Promise<
   | ({ columns: string[]; rows: unknown[][]; truncated: boolean } & {
@@ -172,6 +181,9 @@ export async function runSql(
     })
   | SeratoError
 > {
+  const args = parseToolArgs(runSqlInput, raw);
+  if (isSeratoError(args)) return args;
+
   const guarded = guardSql(args.sql);
   if (guarded) return guarded;
 

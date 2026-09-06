@@ -13,7 +13,7 @@ describe("list_libraries", () => {
   it("reports the library, its schema and its locations", () => {
     const dir = tmp();
     makeMasterFixture(dir, { tracks: [] });
-    const r = listLibraries({ library: dir, roots: [] });
+    const r = listLibraries({}, { library: dir, roots: [] });
     expect(isSeratoError(r)).toBe(false);
     if (isSeratoError(r)) return;
 
@@ -46,7 +46,7 @@ describe("list_libraries", () => {
         { externalId: 3, portableId: "Users/x/c.flac", name: "C" },
       ],
     });
-    const r = listLibraries({ library: dir, roots: [] });
+    const r = listLibraries({}, { library: dir, roots: [] });
     if (isSeratoError(r)) throw new Error("unexpected error");
     expect(r.libraries[0].track_count).toBe(3);
   });
@@ -56,7 +56,7 @@ describe("list_libraries", () => {
   it("reports track_count as null, not 0, for a 3.x library", () => {
     const dir = tmp();
     writeFileSync(join(dir, "database V2"), "binary");
-    const r = listLibraries({ library: dir, roots: [] });
+    const r = listLibraries({}, { library: dir, roots: [] });
     if (isSeratoError(r)) throw new Error("unexpected error");
     expect(r.libraries[0].version).toBe("3.x");
     expect(r.libraries[0].track_count).toBeNull();
@@ -65,7 +65,7 @@ describe("list_libraries", () => {
   it("reports track_count as null for an unreadable master.sqlite", () => {
     const dir = tmp();
     writeFileSync(join(dir, "master.sqlite"), "not sqlite");
-    const r = listLibraries({ library: dir, roots: [] });
+    const r = listLibraries({}, { library: dir, roots: [] });
     if (isSeratoError(r)) throw new Error("unexpected error");
     expect(r.libraries[0].status).toBe("unreadable");
     expect(r.libraries[0].track_count).toBeNull();
@@ -80,7 +80,7 @@ describe("list_libraries", () => {
     try {
       expect(dir.startsWith(`${homedir()}/`)).toBe(true);
       makeMasterFixture(dir, { tracks: [] });
-      const r = listLibraries({ library: dir, roots: [] });
+      const r = listLibraries({}, { library: dir, roots: [] });
       if (isSeratoError(r)) throw new Error("unexpected error");
       expect(r.libraries[0].path).toBe(dir);
       expect(r.libraries[0].path.startsWith("~")).toBe(false);
@@ -92,7 +92,7 @@ describe("list_libraries", () => {
   it("warns on an unknown schema version but still reports the library", () => {
     const dir = tmp();
     makeMasterFixture(dir, { userVersion: 999 });
-    const r = listLibraries({ library: dir, roots: [] });
+    const r = listLibraries({}, { library: dir, roots: [] });
     if (isSeratoError(r)) throw new Error("unexpected error");
     expect(r.libraries[0].schema).toBe(999);
     expect((r as unknown as { warnings: { code: string }[] }).warnings[0].code).toBe(
@@ -105,7 +105,7 @@ describe("list_libraries", () => {
   // is populated by discover() and would not appear in a local synthesis.
   it("passes library_not_found through", () => {
     const dir = tmp();
-    const r = listLibraries({ library: dir, roots: [] });
+    const r = listLibraries({}, { library: dir, roots: [] });
     expect(isSeratoError(r)).toBe(true);
     if (isSeratoError(r)) {
       expect(r.error.code).toBe("library_not_found");
@@ -123,7 +123,7 @@ describe("list_libraries", () => {
     db.exec("DELETE FROM connection");
     db.close();
 
-    const r = listLibraries({ library: dir, roots: [] });
+    const r = listLibraries({}, { library: dir, roots: [] });
     if (isSeratoError(r)) throw new Error("unexpected error");
     expect(r.libraries[0].status).toBe("ok");
     expect(r.libraries[0].locations).toEqual([]);
@@ -147,7 +147,7 @@ describe("list_libraries", () => {
     writeFileSync(join(dir, "master.sqlite"), "not sqlite");
     const closeSpy = vi.spyOn(DatabaseSync.prototype, "close");
     try {
-      const r = listLibraries({ library: dir, roots: [] });
+      const r = listLibraries({}, { library: dir, roots: [] });
       if (isSeratoError(r)) throw new Error("unexpected error");
       expect(r.libraries[0].status).toBe("unreadable");
       expect(r.libraries[0].locations).toEqual([]);

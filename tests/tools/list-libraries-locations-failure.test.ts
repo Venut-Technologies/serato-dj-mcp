@@ -41,7 +41,7 @@ describe("list_libraries: locations read failure", () => {
     const dir = tmp();
     makeMasterFixture(dir, { tracks: [] });
 
-    const r = listLibraries({ library: dir, roots: [] });
+    const r = listLibraries({}, { library: dir, roots: [] });
     if (isSeratoError(r)) throw new Error("unexpected error");
     expect(r.libraries[0].status).toBe("ok");
     expect(r.libraries[0].locations).toEqual([]);

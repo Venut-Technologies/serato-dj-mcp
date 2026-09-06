@@ -36,7 +36,7 @@ describe("list_libraries: introspect failure", () => {
     makeMasterFixture(dir, { tracks: [] });
     const closeSpy = vi.spyOn(DatabaseSync.prototype, "close");
     try {
-      const r = listLibraries({ library: dir, roots: [] });
+      const r = listLibraries({}, { library: dir, roots: [] });
       if (isSeratoError(r)) throw new Error("unexpected error");
       expect(r.libraries[0].status).toBe("ok");
       expect(closeSpy).toHaveBeenCalledTimes(3);
