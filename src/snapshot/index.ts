@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, renameSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
 import { err, type SeratoError } from "../errors.js";
@@ -9,6 +9,64 @@ const FULL_DISK_ACCESS_INSTRUCTIONS =
   "(System Settings > Privacy & Security > Full Disk Access), then retry.";
 
 export type Snapshot = { path: string; generation: string; takenAt: number };
+
+/** Spec 3.2: while Serato is running the library changes constantly, so
+ *  every call would otherwise compute a fresh generation and copy the whole
+ *  database again. Within this window the last snapshot is served instead --
+ *  it is a real, consistent copy, just up to 2 s behind. */
+export const SNAPSHOT_THROTTLE_MS = 2_000;
+
+/** A temp file this old cannot belong to a live backup (they take
+ *  milliseconds on a 4.6 MB library), so it is the debris of a killed
+ *  process and is swept. */
+const TEMP_MAX_AGE_MS = 60 * 60 * 1_000;
+
+/** Last snapshot per live path, for the throttle above. Bounded by the
+ *  number of libraries this process has read, not by the number of calls. */
+const recent = new Map<string, Snapshot>();
+
+/** Identifies the library a cache entry belongs to, so eviction can delete
+ *  every older generation of THIS library and leave other libraries' entries
+ *  alone -- a user with an external drive has several, all sharing one cache
+ *  directory. */
+function libraryKey(livePath: string): string {
+  return createHash("sha256").update(livePath).digest("hex").slice(0, 12);
+}
+
+/**
+ * Spec 7: snapshots are retained "until (mtime, size) changes" -- so once a
+ * newer generation of this library is published, every older one is debris.
+ * Deleting a file another reader still has open is safe on macOS: the open
+ * handle keeps reading the unlinked inode.
+ *
+ * Never allowed to fail a snapshot that has already succeeded: a cache
+ * directory we cannot tidy is a disk-space problem, not a reason to refuse
+ * the caller the copy it just got.
+ */
+function evictOlderEntries(cacheDir: string, prefix: string, keep: string): void {
+  let names: string[];
+  try {
+    names = readdirSync(cacheDir);
+  } catch {
+    return;
+  }
+  const now = Date.now();
+  for (const name of names) {
+    // startsWith(keep), not ===: the published snapshot's own -wal and -shm
+    // sidecars share its name as a prefix and must survive with it.
+    if (name.startsWith(keep)) continue;
+    try {
+      if (name.startsWith(`snap-${prefix}-`)) {
+        rmSync(join(cacheDir, name), { force: true });
+      } else if (name.startsWith(`.tmp-${prefix}-`)) {
+        const age = now - statSync(join(cacheDir, name)).mtimeMs;
+        if (age > TEMP_MAX_AGE_MS) rmSync(join(cacheDir, name), { force: true });
+      }
+    } catch {
+      // Someone else's concurrent eviction, or a read-only cache dir.
+    }
+  }
+}
 
 /**
  * Identity of the source's current content.
@@ -62,8 +120,20 @@ function generationOf(livePath: string): string {
 export async function takeSnapshot(
   livePath: string,
   cacheDir: string,
+  opts: { throttleMs?: number } = {},
 ): Promise<Snapshot | SeratoError> {
+  const throttleMs = opts.throttleMs ?? SNAPSHOT_THROTTLE_MS;
+  const last = recent.get(livePath);
+  // Checked before the two stat calls in generationOf(), because the point
+  // is to answer without touching the live database at all while Serato is
+  // hammering it. existsSync guards the case where the entry was evicted
+  // from under us -- another process, or macOS purging ~/Library/Caches.
+  if (last !== undefined && Date.now() - last.takenAt < throttleMs && existsSync(last.path)) {
+    return last;
+  }
+
   const generation = generationOf(livePath);
+  const prefix = libraryKey(livePath);
   try {
     mkdirSync(cacheDir, { recursive: true });
   } catch (e) {
@@ -78,9 +148,11 @@ export async function takeSnapshot(
       { attempts: 1 },
     );
   }
-  const out = join(cacheDir, `snap-${generation}.sqlite`);
+  const out = join(cacheDir, `snap-${prefix}-${generation}.sqlite`);
 
-  if (existsSync(out)) return { path: out, generation, takenAt: Date.now() };
+  // Reuse: the source has not changed since this file was published, so its
+  // content is current and the throttle window restarts from now.
+  if (existsSync(out)) return remember(livePath, { path: out, generation, takenAt: Date.now() });
 
   // existsSync collapses every stat failure into "missing", including a
   // permission error on a macOS install with restricted Full Disk Access --
@@ -122,7 +194,7 @@ export async function takeSnapshot(
   // Measured 2026-09-06 with millisecond-only uniqueness: about 40% of 20
   // concurrent call pairs failed with "database is locked" or a disk I/O
   // error because both calls' backup() raced over one temp file.
-  const tmp = join(cacheDir, `.tmp-${generation}-${process.pid}-${randomUUID()}.sqlite`);
+  const tmp = join(cacheDir, `.tmp-${prefix}-${generation}-${process.pid}-${randomUUID()}.sqlite`);
   const cleanupTmp = () => {
     for (const sidecar of ["", "-wal", "-shm"]) rmSync(tmp + sidecar, { force: true });
   };
@@ -184,5 +256,12 @@ export async function takeSnapshot(
     });
   }
 
-  return { path: out, generation, takenAt: Date.now() };
+  evictOlderEntries(cacheDir, prefix, `snap-${prefix}-${generation}.sqlite`);
+  return remember(livePath, { path: out, generation, takenAt: Date.now() });
+}
+
+/** Records what the throttle above will serve for the next window. */
+function remember(livePath: string, snap: Snapshot): Snapshot {
+  recent.set(livePath, snap);
+  return snap;
 }

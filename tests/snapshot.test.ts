@@ -1,7 +1,16 @@
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { isSeratoError } from "../src/errors.js";
@@ -28,13 +37,18 @@ describe("snapshot", () => {
     db.close();
   });
 
+  // throttleMs: 0 because this test writes and immediately re-snapshots,
+  // which is precisely what the 2 s throttle exists to coalesce. With the
+  // default window the third call would legitimately serve the pre-write
+  // copy; here the question is whether a *changed* source yields a new
+  // generation at all, so the window is switched off rather than waited out.
   it("gives a stable generation for an unchanged source and a new one after a write", async () => {
     const dir = tmp();
     const live = makeMasterFixture(dir, { tracks: [] });
     const cache = tmp();
 
-    const a = await takeSnapshot(live, cache);
-    const b = await takeSnapshot(live, cache);
+    const a = await takeSnapshot(live, cache, { throttleMs: 0 });
+    const b = await takeSnapshot(live, cache, { throttleMs: 0 });
     if (isSeratoError(a) || isSeratoError(b)) throw new Error("unexpected error");
     expect(a.generation).toBe(b.generation);
 
@@ -44,7 +58,7 @@ describe("snapshot", () => {
     ).run();
     w.close();
 
-    const c = await takeSnapshot(live, cache);
+    const c = await takeSnapshot(live, cache, { throttleMs: 0 });
     if (isSeratoError(c)) throw new Error("unexpected error");
     expect(c.generation).not.toBe(a.generation);
   });
@@ -184,5 +198,109 @@ describe("snapshot", () => {
       expect(r.error.code).toBe("snapshot_failed");
       expect(r.error.message).toContain(cache);
     }
+  });
+});
+
+describe("snapshot cache", () => {
+  const insert = (live: string, id: number) => {
+    const w = new DatabaseSync(live);
+    w.prepare(
+      `INSERT INTO asset (location_id, external_id, portable_id, file_name, name) VALUES (2,${id},'Users/x/${id}.flac','${id}.flac','T')`,
+    ).run();
+    w.close();
+  };
+  const snapshots = (cache: string) => readdirSync(cache).filter((n) => n.startsWith("snap-"));
+
+  // Spec 7: "снапшоты -- до смены (mtime, size)". Without this a running
+  // Serato leaves one full copy of the library per write burst: 4.6 MB each
+  // on a 19-track demo library, and P2 makes every read tool a caller.
+  it("keeps only the current generation of a library", async () => {
+    const live = makeMasterFixture(tmp(), { tracks: [] });
+    const cache = tmp();
+
+    const a = await takeSnapshot(live, cache, { throttleMs: 0 });
+    insert(live, 1);
+    const b = await takeSnapshot(live, cache, { throttleMs: 0 });
+    if (isSeratoError(a) || isSeratoError(b)) throw new Error("unexpected error");
+
+    expect(a.generation).not.toBe(b.generation);
+    expect(snapshots(cache)).toEqual([basename(b.path)]);
+    expect(existsSync(a.path)).toBe(false);
+  });
+
+  // A user with an external drive has several libraries and one cache
+  // directory. Evicting by "everything that is not the file I just wrote"
+  // would delete the other library's current snapshot on every call.
+  it("does not evict another library's snapshot", async () => {
+    const cache = tmp();
+    const one = makeMasterFixture(tmp(), { tracks: [] });
+    const two = makeMasterFixture(tmp(), { tracks: [] });
+
+    const a = await takeSnapshot(one, cache, { throttleMs: 0 });
+    insert(two, 7);
+    const b = await takeSnapshot(two, cache, { throttleMs: 0 });
+    if (isSeratoError(a) || isSeratoError(b)) throw new Error("unexpected error");
+
+    expect(existsSync(a.path)).toBe(true);
+    expect(existsSync(b.path)).toBe(true);
+    expect(snapshots(cache).sort()).toEqual([basename(a.path), basename(b.path)].sort());
+  });
+
+  // Spec 3.2. The library changes on every Serato write, so without the
+  // window each call copies the whole database again.
+  it("serves the last snapshot again within the throttle window", async () => {
+    const live = makeMasterFixture(tmp(), { tracks: [] });
+    const cache = tmp();
+
+    const a = await takeSnapshot(live, cache);
+    insert(live, 3);
+    const b = await takeSnapshot(live, cache);
+    if (isSeratoError(a) || isSeratoError(b)) throw new Error("unexpected error");
+
+    expect(b.path).toBe(a.path);
+    expect(b.generation).toBe(a.generation);
+    // The snapshot served is up to 2 s stale, which is the trade the spec
+    // makes -- but it is still exactly one file, not a second copy.
+    expect(snapshots(cache)).toHaveLength(1);
+  });
+
+  // The window must never be able to serve a path that is no longer there:
+  // macOS may purge ~/Library/Caches at any moment, and another process may
+  // have evicted the entry.
+  it("re-takes a snapshot inside the window when the cached file is gone", async () => {
+    const live = makeMasterFixture(tmp(), { tracks: [] });
+    const cache = tmp();
+
+    const a = await takeSnapshot(live, cache);
+    if (isSeratoError(a)) throw new Error("unexpected error");
+    rmSync(a.path, { force: true });
+
+    const b = await takeSnapshot(live, cache);
+    if (isSeratoError(b)) throw new Error("unexpected error");
+    expect(existsSync(b.path)).toBe(true);
+  });
+
+  // A process killed mid-backup leaves a library-sized temp file behind.
+  // Sweeping by age rather than by name is what keeps a *live* concurrent
+  // backup's temp file safe.
+  it("sweeps stale temp files but leaves a fresh one alone", async () => {
+    const live = makeMasterFixture(tmp(), { tracks: [] });
+    const cache = tmp();
+    await takeSnapshot(live, cache, { throttleMs: 0 });
+
+    const [stale] = readdirSync(cache).filter((n) => n.startsWith("snap-"));
+    const prefix = stale.slice("snap-".length).split("-")[0];
+    const old = join(cache, `.tmp-${prefix}-deadbeef-999-old.sqlite`);
+    const fresh = join(cache, `.tmp-${prefix}-deadbeef-999-fresh.sqlite`);
+    writeFileSync(old, "x");
+    writeFileSync(fresh, "x");
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    utimesSync(old, twoHoursAgo, twoHoursAgo);
+
+    insert(live, 5);
+    await takeSnapshot(live, cache, { throttleMs: 0 });
+
+    expect(existsSync(old)).toBe(false);
+    expect(existsSync(fresh)).toBe(true);
   });
 });
