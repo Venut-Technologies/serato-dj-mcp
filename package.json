@@ -12,7 +12,7 @@
     "build": "tsc",
     "prepare": "npm run build",
     "test": "vitest run",
-    "lint": "biome check src tests",
+    "lint": "biome check --error-on-warnings src tests",
     "format": "biome check --write src tests"
   },
   "dependencies": {
