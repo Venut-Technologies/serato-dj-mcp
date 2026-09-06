@@ -63,10 +63,35 @@ describe("list_libraries", () => {
     );
   });
 
+  // Asserting only error.code would pass equally if listLibraries synthesised
+  // this error itself instead of returning what discover() produced; details.searched
+  // is populated by discover() and would not appear in a local synthesis.
   it("passes library_not_found through", () => {
-    const r = listLibraries({ library: tmp(), roots: [] });
+    const dir = tmp();
+    const r = listLibraries({ library: dir, roots: [] });
     expect(isSeratoError(r)).toBe(true);
-    if (isSeratoError(r)) expect(r.error.code).toBe("library_not_found");
+    if (isSeratoError(r)) {
+      expect(r.error.code).toBe("library_not_found");
+      expect(r.error.details?.searched).toContain(dir);
+    }
+  });
+
+  // A library with status "ok" whose connection table has no rows is a
+  // truthful "no locations recorded", not a read failure -- it must not
+  // carry the locations_unavailable warning added for the failure case.
+  it("reports an empty connection table as no locations, without a warning", () => {
+    const dir = tmp();
+    makeMasterFixture(dir, { tracks: [] });
+    const db = new DatabaseSync(join(dir, "master.sqlite"));
+    db.exec("DELETE FROM connection");
+    db.close();
+
+    const r = listLibraries({ library: dir, roots: [] });
+    if (isSeratoError(r)) throw new Error("unexpected error");
+    expect(r.libraries[0].status).toBe("ok");
+    expect(r.libraries[0].locations).toEqual([]);
+    const warnings = (r as unknown as { warnings?: { code: string }[] }).warnings ?? [];
+    expect(warnings.some((w) => w.code === "locations_unavailable")).toBe(false);
   });
 
   // node:sqlite opens lazily: for a master.sqlite that exists but isn't a

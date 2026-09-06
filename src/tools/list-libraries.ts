@@ -17,6 +17,16 @@ export type LibraryEntry = LibraryInfo & {
   locations: { uri: string; volumeRoot: string }[];
 };
 
+type LocationsResult = {
+  locations: { uri: string; volumeRoot: string }[];
+  /** true only when the connection table itself couldn't be read -- a
+   *  genuinely empty table reports failed: false, locations: []. Collapsing
+   *  both into a bare [] would make "no locations recorded" and "couldn't
+   *  read locations" indistinguishable to the caller. */
+  failed: boolean;
+  error?: string;
+};
+
 /**
  * Locations live in master.sqlite; the volume root of each comes from
  * connection.database_uri, because location.path is NULL.
@@ -27,22 +37,25 @@ export type LibraryEntry = LibraryInfo & {
  * `finally` -- same idiom as detectLibrary() in ../discovery/index.ts -- so
  * that the throwing path closes the handle too, not just the success path.
  */
-function locationsOf(dir: string): { uri: string; volumeRoot: string }[] {
+function locationsOf(dir: string): LocationsResult {
   let db: DatabaseSync | undefined;
   try {
     db = new DatabaseSync(join(dir, "master.sqlite"), { readOnly: true });
     const rows = db.prepare("SELECT database_uri FROM connection").all() as {
       database_uri: string;
     }[];
-    return rows.map((r) => {
-      try {
-        return { uri: r.database_uri, volumeRoot: volumeRootFromDatabaseUri(r.database_uri) };
-      } catch {
-        return { uri: r.database_uri, volumeRoot: "" };
-      }
-    });
-  } catch {
-    return [];
+    return {
+      failed: false,
+      locations: rows.map((r) => {
+        try {
+          return { uri: r.database_uri, volumeRoot: volumeRootFromDatabaseUri(r.database_uri) };
+        } catch {
+          return { uri: r.database_uri, volumeRoot: "" };
+        }
+      }),
+    };
+  } catch (e) {
+    return { locations: [], failed: true, error: e instanceof Error ? e.message : String(e) };
   } finally {
     db?.close();
   }
@@ -83,7 +96,17 @@ export function listLibraries(opts: {
         db?.close();
       }
     }
-    return { ...lib, locations: lib.version === "4.x" ? locationsOf(lib.path) : [] };
+    if (lib.version !== "4.x") return { ...lib, locations: [] };
+
+    const { locations, failed, error } = locationsOf(lib.path);
+    if (failed) {
+      warnings.push({
+        code: "locations_unavailable",
+        message: `could not read locations for ${lib.path}${error ? `: ${error}` : ""}`,
+        details: { path: lib.path, error },
+      });
+    }
+    return { ...lib, locations };
   });
 
   const active = libraries.find((l) => l.version === "4.x" && l.status === "ok")?.uuid ?? null;
