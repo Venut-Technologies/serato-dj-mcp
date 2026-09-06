@@ -80,6 +80,47 @@ describe("guardSql", () => {
   it("allows a bracket-quoted identifier named after a banned keyword", () => {
     expect(guardSql("SELECT [create] FROM asset")).toBeNull();
   });
+
+  // Regression: stripLiterals used to strip comments before quotes/
+  // identifiers, so a "--" that is genuinely just text inside a quoted
+  // region was read as a comment start and swallowed the rest of the
+  // input -- including a real ";" and a real second statement sitting
+  // outside the quoting. Confirmed against real node:sqlite (2026-09-06)
+  // that all four of these are well-formed: db.prepare() compiles exactly
+  // "SELECT 1 AS <quoted alias>" and silently ignores "; DELETE FROM t",
+  // proving the ";" is a genuine top-level statement separator, not part
+  // of the quoted content.
+  it("refuses a real second statement even when a '--' inside quoting comes first", () => {
+    for (const sql of [
+      "SELECT [foo -- bar] FROM t; DELETE FROM t",
+      "SELECT `foo -- bar` FROM t; DELETE FROM t",
+      'SELECT "foo -- bar" FROM t; DELETE FROM t',
+      "SELECT 'foo -- bar' FROM t; DELETE FROM t",
+    ]) {
+      const r = guardSql(sql);
+      expect(r, sql).not.toBeNull();
+      if (r) expect(r.error.details?.reason).toBe("multiple_statements");
+    }
+  });
+
+  it("still allows an unterminated quote or bracket rather than misreading it as a second statement", () => {
+    // Malformed SQL (the query will fail at prepare() later), but a
+    // dangling delimiter must not make the guard see content that was
+    // never actually a top-level second statement -- there is nothing left
+    // outside the unterminated region for it to be.
+    expect(guardSql("SELECT 'abc")).toBeNull();
+    expect(guardSql("SELECT [abc")).toBeNull();
+  });
+
+  it("still allows a '--' that really is just a comment", () => {
+    expect(guardSql("SELECT 1 -- this really is a comment")).toBeNull();
+    // The whole ";DROP TABLE t" sits inside the comment (no newline before
+    // end of input), so there is no real second statement here at all --
+    // unlike the "hidden after a line comment" test above, where the ";"
+    // sits after the comment's terminating newline and is genuinely a
+    // second statement.
+    expect(guardSql("SELECT 1 -- ;DROP TABLE t")).toBeNull();
+  });
 });
 
 describe("run_sql", () => {

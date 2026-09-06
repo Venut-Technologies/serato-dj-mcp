@@ -17,24 +17,107 @@ export const runSqlDescription =
   "library. It cannot alter the library: the snapshot is a copy and the connection is " +
   "read-only. Paths are returned raw, without redaction. Registered only with --allow-raw-sql.";
 
-/** Strips string literals, quoted identifiers (double-quote, backtick, and
- *  bracket -- all four are accepted by SQLite), and comments so that keyword
- *  and ";" detection cannot be fooled by any of them, in either direction:
- *  a semicolon or keyword hidden inside one of these must not slip past the
- *  guard, and a keyword that is merely a quoted column/table name (e.g.
- *  `` `delete` `` or `[create]`) must not be refused as if it were the SQL
- *  keyword. Doubling the quote character escapes it inside '...', "...",
- *  and `...`; [...] has no such escape in SQLite, so it ends at the first
- *  "]". Verified empirically against node:sqlite 2026-09-06.
+type ScanState =
+  | "normal"
+  | "single"
+  | "double"
+  | "backtick"
+  | "bracket"
+  | "line_comment"
+  | "block_comment";
+
+/**
+ * Strips string literals, quoted identifiers (double-quote, backtick, and
+ * bracket -- all four are accepted by SQLite), and comments so that keyword
+ * and ";" detection cannot be fooled by any of them, in either direction: a
+ * semicolon or keyword hidden inside one of these must not slip past the
+ * guard, and a keyword that is merely a quoted column/table name (e.g.
+ * `` `delete` `` or `[create]`) must not be refused as if it were the SQL
+ * keyword.
+ *
+ * A single left-to-right scan that tracks exactly one lexical state at a
+ * time, not a sequence of independent regexes. Regexes applied one after
+ * another cannot get this right in principle: quoting and comments are
+ * mutually exclusive contexts, and which one a given position is in can
+ * only be decided by having already scanned everything before it. Fixed
+ * 2026-09-06: the previous version stripped comments first, so a "--"
+ * that was genuinely just text inside a quoted region (e.g.
+ * `SELECT 'foo -- bar' FROM t; DELETE FROM t`) was read as a comment
+ * start and swallowed the rest of the input -- including a real ";" and a
+ * real second statement sitting outside the quoting. Confirmed against
+ * node:sqlite that such input is well-formed: prepare() compiles exactly
+ * the SELECT and silently ignores the rest, proving the ";" is real.
+ *
+ * Doubling the quote character escapes it inside '...', "...", and
+ * `...`; [...] has no such escape in SQLite, so it ends at the first "]".
+ * An unterminated quote, bracket, or block comment consumes to the end of
+ * the input rather than reporting an error here -- matching node:sqlite's
+ * own tokenizer, which does the same (verified empirically 2026-09-06).
  */
 function stripLiterals(sql: string): string {
-  return sql
-    .replace(/--[^\n]*/g, " ")
-    .replace(/\/\*[\s\S]*?\*\//g, " ")
-    .replace(/'(?:[^']|'')*'/g, "''")
-    .replace(/"(?:[^"]|"")*"/g, '""')
-    .replace(/`(?:[^`]|``)*`/g, "``")
-    .replace(/\[[^\]]*\]/g, "[]");
+  let state: ScanState = "normal";
+  let out = "";
+  let i = 0;
+  while (i < sql.length) {
+    const c = sql[i];
+    const c2 = sql[i + 1] ?? "";
+    if (state === "normal") {
+      if (c === "-" && c2 === "-") {
+        out += " ";
+        state = "line_comment";
+        i += 2;
+      } else if (c === "/" && c2 === "*") {
+        out += " ";
+        state = "block_comment";
+        i += 2;
+      } else if (c === "'" || c === '"' || c === "`" || c === "[") {
+        out += c;
+        state = c === "'" ? "single" : c === '"' ? "double" : c === "`" ? "backtick" : "bracket";
+        i += 1;
+      } else {
+        out += c;
+        i += 1;
+      }
+      continue;
+    }
+    if (state === "single" || state === "double" || state === "backtick") {
+      const quote = state === "single" ? "'" : state === "double" ? '"' : "`";
+      if (c === quote && c2 === quote) {
+        i += 2; // doubled quote: an escaped literal quote, stay inside
+      } else if (c === quote) {
+        out += quote;
+        state = "normal";
+        i += 1;
+      } else {
+        i += 1; // swallow content
+      }
+      continue;
+    }
+    if (state === "bracket") {
+      if (c === "]") {
+        out += "]";
+        state = "normal";
+      }
+      i += 1;
+      continue;
+    }
+    if (state === "line_comment") {
+      if (c === "\n") {
+        out += "\n";
+        state = "normal";
+      }
+      i += 1;
+      continue;
+    }
+    // block_comment
+    if (c === "*" && c2 === "/") {
+      state = "normal";
+      i += 2;
+    } else {
+      i += 1;
+    }
+  }
+  return out;
 }
 
 export function guardSql(sql: string): null | SeratoError {
