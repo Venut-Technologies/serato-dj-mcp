@@ -39,10 +39,18 @@ function libraryId(dir: string): string {
 export function detectLibrary(dir: string): LibraryInfo | null {
   const master = join(dir, "master.sqlite");
   if (existsSync(master)) {
+    // node:sqlite opens lazily: for a file that exists but isn't a valid
+    // database, `new DatabaseSync` itself succeeds and the throw only comes
+    // from the first statement that actually reads it (PRAGMA user_version,
+    // below). db is declared before the try and closed in a `finally` so
+    // that path -- not just the success path -- closes it too. Measured
+    // 2026-09-06: without this, every damaged master.sqlite this function
+    // inspects leaks a file descriptor, and discover() inspects one per root
+    // on every call.
+    let db: DatabaseSync | undefined;
     try {
-      const db = new DatabaseSync(master, { readOnly: true });
+      db = new DatabaseSync(master, { readOnly: true });
       const uv = (db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version;
-      db.close();
       return { path: dir, uuid: libraryId(dir), version: "4.x", schema: uv, status: "ok" };
     } catch (e) {
       return {
@@ -53,6 +61,8 @@ export function detectLibrary(dir: string): LibraryInfo | null {
         status: "unreadable",
         error: e instanceof Error ? e.message : String(e),
       };
+    } finally {
+      db?.close();
     }
   }
   // 3.x: a binary "database V2" and no SQLite anywhere.

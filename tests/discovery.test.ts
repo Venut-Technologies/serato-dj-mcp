@@ -1,7 +1,8 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { DatabaseSync } from "node:sqlite";
+import { describe, expect, it, vi } from "vitest";
 import { defaultRoots, detectLibrary, discover } from "../src/discovery/index.js";
 import { isSeratoError } from "../src/errors.js";
 import { makeMasterFixture } from "./fixtures/make.js";
@@ -42,6 +43,25 @@ describe("discovery", () => {
     expect(lib?.version).toBe("4.x");
   });
 
+  // node:sqlite opens lazily: for this exact fixture, `new DatabaseSync`
+  // succeeds and the throw comes from the PRAGMA read that follows, so the
+  // handle is already open by the time detectLibrary's catch runs. A
+  // `finally` (rather than a close() only on the success path) is what
+  // closes it there; spying on the prototype method proves it was actually
+  // called rather than merely trusting the source.
+  it("closes the sqlite handle when reading an unreadable master.sqlite throws", () => {
+    const dir = tmp();
+    writeFileSync(join(dir, "master.sqlite"), "not sqlite");
+    const closeSpy = vi.spyOn(DatabaseSync.prototype, "close");
+    try {
+      const lib = detectLibrary(dir);
+      expect(lib?.status).toBe("unreadable");
+      expect(closeSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      closeSpy.mockRestore();
+    }
+  });
+
   it("prefers an explicit --library over the roots", () => {
     const explicit = tmp();
     makeMasterFixture(explicit, { tracks: [] });
@@ -65,6 +85,11 @@ describe("discovery", () => {
   });
 
   it("names the macOS default first", () => {
-    expect(defaultRoots()[0]).toMatch(/Library\/Application Support\/Serato\/Library$/);
+    // Full-path equality, not a suffix match: a hardcoded string ending in
+    // the right suffix would satisfy a regex without ever calling
+    // homedir(), so this proves the root is actually derived from it.
+    expect(defaultRoots()[0]).toBe(
+      join(homedir(), "Library", "Application Support", "Serato", "Library"),
+    );
   });
 });
