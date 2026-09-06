@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { isSeratoError } from "../../src/errors.js";
+import { takeSnapshot } from "../../src/snapshot/index.js";
 import { guardSql, runSql } from "../../src/tools/run-sql.js";
 import { makeMasterFixture } from "../fixtures/make.js";
 
@@ -177,6 +178,21 @@ describe("run_sql", () => {
     const r = await runSql({ sql: "SELECT nope FROM asset" }, ctx());
     expect(isSeratoError(r)).toBe(true);
     if (isSeratoError(r)) expect(r.error.code).toBe("invalid_argument");
+  });
+
+  // Spec 4.0: every successful response carries generation except
+  // list_libraries. ok()'s generation argument previously had no production
+  // call site that ever passed a real value (list_libraries always calls it
+  // with undefined), so this is what first exercises that path at all.
+  it("carries the snapshot's generation", async () => {
+    const context = ctx();
+    const r = await runSql({ sql: "SELECT 1" }, context);
+    if (isSeratoError(r)) throw new Error("unexpected error");
+    expect(r.generation).toMatch(/^[0-9a-f]{12}$/);
+
+    const snap = await takeSnapshot(context.livePath, context.cacheDir);
+    if (isSeratoError(snap)) throw new Error("unexpected error");
+    expect(r.generation).toBe(snap.generation);
   });
 
   it("reports column names even when the query matches zero rows", async () => {

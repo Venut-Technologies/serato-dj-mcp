@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { discover, type LibraryInfo } from "../discovery/index.js";
-import { ok, type Warning } from "../envelope.js";
+import { ok, type Warning, warningSchema } from "../envelope.js";
 import { isSeratoError, type SeratoError } from "../errors.js";
 import { volumeRootFromDatabaseUri } from "../paths.js";
 import { introspect } from "../schema/index.js";
@@ -15,7 +15,29 @@ export const listLibrariesDescription =
 
 export type LibraryEntry = LibraryInfo & {
   locations: { uri: string; volumeRoot: string }[];
+  /** null, not 0, for anything not a readable 4.x library: zero is a claim
+   *  about the library's contents, null is an absence of one. */
+  track_count: number | null;
 };
+
+const libraryEntrySchema = z.object({
+  path: z.string(),
+  uuid: z.string(),
+  version: z.enum(["4.x", "3.x"]),
+  schema: z.number().nullable(),
+  status: z.enum(["ok", "unreadable"]),
+  error: z.string().optional(),
+  locations: z.array(z.object({ uri: z.string(), volumeRoot: z.string() })),
+  track_count: z.number().nullable(),
+});
+
+// list_libraries is the one tool exempted from carrying `generation` (spec
+// 4.0): it is not bound to a single snapshot, it lists all of them.
+export const listLibrariesOutput = z.object({
+  libraries: z.array(libraryEntrySchema),
+  active: z.string().nullable(),
+  warnings: z.array(warningSchema).optional(),
+});
 
 type LocationsResult = {
   locations: { uri: string; volumeRoot: string }[];
@@ -75,6 +97,10 @@ export function listLibraries(opts: {
 
   const warnings: Warning[] = [];
   const libraries: LibraryEntry[] = found.map((lib) => {
+    // null, not 0: a 3.x library or an unreadable master.sqlite has no
+    // trustworthy count to report, and 0 would be indistinguishable from a
+    // genuinely empty 4.x library.
+    let trackCount: number | null = null;
     if (lib.version === "4.x" && lib.status === "ok") {
       // Same lazy-open, finally-close idiom as locationsOf() above: introspect()
       // can throw (a future schema it cannot parse, say) after the handle is
@@ -90,13 +116,16 @@ export function listLibraries(opts: {
             details: { path: lib.path, user_version: info.userVersion },
           });
         }
+        // One SELECT on the handle already open for introspection, rather
+        // than a second open elsewhere for the same library.
+        trackCount = (db.prepare("SELECT count(*) AS n FROM asset").get() as { n: number }).n;
       } catch {
         // Already reflected by status; nothing further to say.
       } finally {
         db?.close();
       }
     }
-    if (lib.version !== "4.x") return { ...lib, locations: [] };
+    if (lib.version !== "4.x") return { ...lib, locations: [], track_count: null };
 
     const { locations, failed, error } = locationsOf(lib.path);
     if (failed) {
@@ -106,7 +135,7 @@ export function listLibraries(opts: {
         details: { path: lib.path, error },
       });
     }
-    return { ...lib, locations };
+    return { ...lib, locations, track_count: trackCount };
   });
 
   const active = libraries.find((l) => l.version === "4.x" && l.status === "ok")?.uuid ?? null;

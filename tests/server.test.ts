@@ -97,19 +97,73 @@ describe("server", () => {
     );
   });
 
+  // B1: both tools declare outputSchema. The SDK validates structuredContent
+  // against it on the success path (validateToolOutput in
+  // @modelcontextprotocol/sdk's server/mcp.js) -- if the declared shape did
+  // not match what these tools actually return, client.callTool() would
+  // reject with McpError(InvalidParams, "Output validation error: ...")
+  // instead of resolving. This exercises that over a real client, not just
+  // against the schema object directly.
+  it("a successful list_libraries call validates against its declared outputSchema", async () => {
+    const s = createServer(cli());
+    const out = await callToolOverTheWire(s, "list_libraries", {});
+    expect(out.active).toEqual(expect.any(String));
+    expect(Array.isArray(out.libraries)).toBe(true);
+  });
+
+  it("a successful run_sql call validates against its declared outputSchema", async () => {
+    const s = createServer(cli({ allowRawSql: true }));
+    const out = await callToolOverTheWire(s, "run_sql", { sql: "SELECT 1 AS one" });
+    expect(out.columns).toEqual(["one"]);
+    expect(out.rows).toEqual([[1]]);
+    expect(out.truncated).toBe(false);
+    expect(out.generation).toEqual(expect.any(String));
+  });
+
+  // The SDK skips outputSchema validation entirely when isError is true
+  // (validateToolOutput returns early on `result.isError`), so an error
+  // response never has to fit the success shape declared above -- verified
+  // here, not just read off the SDK source, because that early return is
+  // exactly the assumption B1's outputSchema addition depends on.
+  it("an error response is delivered even though it does not match either tool's outputSchema", async () => {
+    const s = createServer(cli({ allowRawSql: true }));
+    const out = await callToolOverTheWire(s, "run_sql", { sql: "DELETE FROM asset" });
+    expect(out.error).toMatchObject({ code: "invalid_argument" });
+  });
+
   // found[0] could be a 3.x directory: joining "master.sqlite" onto it and
   // handing that to runSql() would surface a generic snapshot_failed instead
-  // of naming the real problem, which is that no readable 4.x library exists
-  // at any of the searched locations.
-  it("run_sql reports library_not_found, not a snapshot failure, when only a 3.x library exists", async () => {
+  // of naming the real problem. A 3.x-only result is not "not found" either
+  // (spec 6, 12): it must name the detected version so the user does not
+  // retry the same --library and get the same unhelpful answer.
+  it("run_sql reports unsupported_version, not library_not_found, when only a 3.x library exists", async () => {
     const dir = mkdtempSync(join(tmpdir(), "serato-3x-"));
     writeFileSync(join(dir, "database V2"), "binary");
     const s = createServer(cli({ library: dir, allowRawSql: true }));
 
     const out = await callToolOverTheWire(s, "run_sql", { sql: "SELECT 1" });
+    expect(out.error).toMatchObject({ code: "unsupported_version" });
+    const details = (
+      out.error as { details?: { detected_version?: string; candidates?: unknown[] } }
+    ).details;
+    expect(details?.detected_version).toBe("3.x");
+    expect(details?.candidates).toEqual([{ path: dir, version: "3.x", status: "ok" }]);
+  });
+
+  // A candidate exists (an unreadable master.sqlite) but it is neither a
+  // readable 4.x nor a 3.x library, so this still falls back to
+  // library_not_found -- and, per B3, that response must carry searched[]
+  // (spec 6 makes it mandatory) alongside the existing candidates.
+  it("run_sql reports library_not_found with searched[] when the only candidate is unreadable", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "serato-unreadable-"));
+    writeFileSync(join(dir, "master.sqlite"), "not sqlite");
+    const s = createServer(cli({ library: dir, allowRawSql: true }));
+
+    const out = await callToolOverTheWire(s, "run_sql", { sql: "SELECT 1" });
     expect(out.error).toMatchObject({ code: "library_not_found" });
-    expect((out.error as { details?: { candidates?: unknown[] } }).details?.candidates).toEqual([
-      { path: dir, version: "3.x", status: "ok" },
-    ]);
+    const details = (out.error as { details?: { searched?: string[]; candidates?: unknown[] } })
+      .details;
+    expect(details?.searched).toEqual([dir]);
+    expect(details?.candidates).toEqual([{ path: dir, version: "4.x", status: "unreadable" }]);
   });
 });

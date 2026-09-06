@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
+import { ok, type Warning, warningSchema } from "../envelope.js";
 import { err, isSeratoError, type SeratoError } from "../errors.js";
 import { takeSnapshot } from "../snapshot/index.js";
 
@@ -10,6 +11,25 @@ export const runSqlInput = z.object({
   sql: z.string().min(1),
   params: z.array(z.union([z.string(), z.number(), z.null()])).optional(),
   limit: z.number().int().min(1).max(MAX_LIMIT).optional(),
+});
+
+// node:sqlite hands back TEXT, INTEGER/REAL and NULL as string, number and
+// null -- verified 2026-09-06. BLOB comes back as a Uint8Array, but
+// z.instanceof(Uint8Array) has no JSON Schema representation: the SDK's
+// tools/list conversion of the outputSchema itself throws ("Custom types
+// cannot be represented in JSON Schema") the moment a schema contains one,
+// which broke every tool's listing, not just this one's validation. BLOB's
+// wire serialisation shape is out of scope for this wave (it is still
+// returned as-is, unconverted), so it is covered here with z.any() rather
+// than solved.
+const sqlValueSchema = z.union([z.string(), z.number(), z.null(), z.any()]);
+
+export const runSqlOutput = z.object({
+  columns: z.array(z.string()),
+  rows: z.array(z.array(sqlValueSchema)),
+  truncated: z.boolean(),
+  generation: z.string(),
+  warnings: z.array(warningSchema).optional(),
 });
 
 export const runSqlDescription =
@@ -145,7 +165,13 @@ export function guardSql(sql: string): null | SeratoError {
 export async function runSql(
   args: { sql: string; params?: (string | number | null)[]; limit?: number },
   ctx: { livePath: string; cacheDir: string },
-): Promise<{ columns: string[]; rows: unknown[][]; truncated: boolean } | SeratoError> {
+): Promise<
+  | ({ columns: string[]; rows: unknown[][]; truncated: boolean } & {
+      generation?: string;
+      warnings?: Warning[];
+    })
+  | SeratoError
+> {
   const guarded = guardSql(args.sql);
   if (guarded) return guarded;
 
@@ -196,7 +222,11 @@ export async function runSql(
       }
       rows.push(columns.map((c) => row[c]));
     }
-    return { columns, rows, truncated };
+    // Spec 4.0: every successful response carries generation except
+    // list_libraries. This is the only production call site of ok() with a
+    // real generation -- list_libraries always calls it with undefined --
+    // so this is also what first exercises that argument of ok() at all.
+    return ok({ columns, rows, truncated }, snap.generation);
   } catch (e) {
     return err("invalid_argument", `query failed: ${e instanceof Error ? e.message : String(e)}`, {
       reason: "query_error",

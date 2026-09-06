@@ -72,15 +72,26 @@ export function detectLibrary(dir: string): LibraryInfo | null {
   return null;
 }
 
+/**
+ * The directories discover() looks in, in priority order, with `~` already
+ * expanded -- the same list discover() itself computes internally, exposed
+ * so a caller that already has a successful LibraryInfo[] (so discover()
+ * itself has no error to attach `searched` to) can still report where it
+ * looked. Spec 6 makes `searched` mandatory on library_not_found, and that
+ * requirement does not stop being true just because *some* location, even
+ * an unusable one (e.g. a 3.x library), was found.
+ */
+export function searchLocations(opts: { library?: string; roots?: string[] }): string[] {
+  if (opts.library) return [expandHome(opts.library)];
+  return (opts.roots ?? defaultRoots()).map(expandHome);
+}
+
 export function discover(opts: {
   library?: string;
   roots?: string[];
 }): LibraryInfo[] | SeratoError {
-  const searched: string[] = [];
-
   if (opts.library) {
     const dir = expandHome(opts.library);
-    searched.push(dir);
     let exists = false;
     try {
       exists = statSync(dir).isDirectory();
@@ -89,13 +100,12 @@ export function discover(opts: {
     }
     const lib = exists ? detectLibrary(dir) : null;
     if (lib) return [lib];
-    return err("library_not_found", `no Serato library at ${dir}`, { searched });
+    return err("library_not_found", `no Serato library at ${dir}`, { searched: [dir] });
   }
 
   const found: LibraryInfo[] = [];
-  for (const raw of opts.roots ?? defaultRoots()) {
-    const dir = expandHome(raw);
-    searched.push(dir);
+  const searched = searchLocations(opts);
+  for (const dir of searched) {
     const lib = detectLibrary(dir);
     if (lib) found.push(lib);
   }

@@ -32,6 +32,43 @@ describe("list_libraries", () => {
     );
     expect(lib.locations[0].volumeRoot).toBe("/");
     expect(r.active).toBe(lib.uuid);
+    expect(lib.track_count).toBe(0);
+  });
+
+  // count(*) FROM asset on the handle already open for introspection, not a
+  // hardcoded length -- the fixture's own INSERTs are what this pins to.
+  it("counts tracks with a single query on the already-open handle", () => {
+    const dir = tmp();
+    makeMasterFixture(dir, {
+      tracks: [
+        { externalId: 1, portableId: "Users/x/a.flac", name: "A" },
+        { externalId: 2, portableId: "Users/x/b.flac", name: "B" },
+        { externalId: 3, portableId: "Users/x/c.flac", name: "C" },
+      ],
+    });
+    const r = listLibraries({ library: dir, roots: [] });
+    if (isSeratoError(r)) throw new Error("unexpected error");
+    expect(r.libraries[0].track_count).toBe(3);
+  });
+
+  // 0 would be a claim about the library's contents; a 3.x library has no
+  // trustworthy count at all, so it must read null, not 0.
+  it("reports track_count as null, not 0, for a 3.x library", () => {
+    const dir = tmp();
+    writeFileSync(join(dir, "database V2"), "binary");
+    const r = listLibraries({ library: dir, roots: [] });
+    if (isSeratoError(r)) throw new Error("unexpected error");
+    expect(r.libraries[0].version).toBe("3.x");
+    expect(r.libraries[0].track_count).toBeNull();
+  });
+
+  it("reports track_count as null for an unreadable master.sqlite", () => {
+    const dir = tmp();
+    writeFileSync(join(dir, "master.sqlite"), "not sqlite");
+    const r = listLibraries({ library: dir, roots: [] });
+    if (isSeratoError(r)) throw new Error("unexpected error");
+    expect(r.libraries[0].status).toBe("unreadable");
+    expect(r.libraries[0].track_count).toBeNull();
   });
 
   // list_libraries is the one tool whose path the user must copy verbatim
