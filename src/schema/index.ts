@@ -10,6 +10,11 @@ export const KNOWN_USER_VERSIONS: readonly number[] = [202];
  *
  * length_ms leads because length_sec was NULL on all 19 tracks of the demo
  * library while length_ms was populated. Measured 2026-09-03.
+ *
+ * `key` is the one field whose candidates are not alternatives: both columns
+ * are read, because neither alone covers the library (spec 2.6 -- key_value
+ * alone reaches 39 of 118 tracks, both together 114). See read/key.ts, which
+ * owns that rule; KEY_COLUMNS there is this entry.
  */
 export const ASSET_FIELD_COLUMNS: Record<string, readonly string[]> = {
   id: ["id"],
@@ -18,7 +23,7 @@ export const ASSET_FIELD_COLUMNS: Record<string, readonly string[]> = {
   album: ["album"],
   genre: ["genre"],
   bpm: ["bpm"],
-  key: ["key_value"],
+  key: ["key_value", "key"],
   length: ["length_ms", "length_sec"],
   rating: ["rating"],
   added: ["time_added"],
