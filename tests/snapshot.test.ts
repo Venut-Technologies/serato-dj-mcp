@@ -164,4 +164,25 @@ describe("snapshot", () => {
     expect(isSeratoError(r)).toBe(true);
     if (isSeratoError(r)) expect(r.error.code).toBe("permission_denied");
   });
+
+  // mkdirSync(cacheDir, { recursive: true }) used to sit before any try, so
+  // a cacheDir that cannot be created (e.g. a path component that is
+  // actually a regular file, giving ENOTDIR) threw a raw Error out of
+  // takeSnapshot instead of returning a SeratoError, breaking the "errors
+  // are values" contract in src/errors.ts.
+  it("returns snapshot_failed instead of throwing when cacheDir cannot be created", async () => {
+    const dir = tmp();
+    const live = makeMasterFixture(dir, { tracks: [] });
+
+    const notADir = join(dir, "not-a-dir");
+    writeFileSync(notADir, "x");
+    const cache = join(notADir, "cache");
+
+    const r = await takeSnapshot(live, cache);
+    expect(isSeratoError(r)).toBe(true);
+    if (isSeratoError(r)) {
+      expect(r.error.code).toBe("snapshot_failed");
+      expect(r.error.message).toContain(cache);
+    }
+  });
 });

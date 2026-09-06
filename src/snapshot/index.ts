@@ -64,7 +64,20 @@ export async function takeSnapshot(
   cacheDir: string,
 ): Promise<Snapshot | SeratoError> {
   const generation = generationOf(livePath);
-  mkdirSync(cacheDir, { recursive: true });
+  try {
+    mkdirSync(cacheDir, { recursive: true });
+  } catch (e) {
+    // Errors are values, never thrown across this boundary (see errors.ts):
+    // a bad cacheDir (e.g. a path component that is actually a regular
+    // file, giving ENOTDIR) must not escape as a raw Error, since runSql's
+    // own "never throws" property depends on every call it makes upholding
+    // that contract.
+    return err(
+      "snapshot_failed",
+      `cannot create cache directory ${cacheDir}: ${e instanceof Error ? e.message : String(e)}`,
+      { attempts: 1 },
+    );
+  }
   const out = join(cacheDir, `snap-${generation}.sqlite`);
 
   if (existsSync(out)) return { path: out, generation, takenAt: Date.now() };

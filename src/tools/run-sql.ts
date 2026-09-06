@@ -17,14 +17,24 @@ export const runSqlDescription =
   "library. It cannot alter the library: the snapshot is a copy and the connection is " +
   "read-only. Paths are returned raw, without redaction. Registered only with --allow-raw-sql.";
 
-/** Strips string literals and comments so that keyword and ";" detection
- *  cannot be fooled by a semicolon inside a quoted value. */
+/** Strips string literals, quoted identifiers (double-quote, backtick, and
+ *  bracket -- all four are accepted by SQLite), and comments so that keyword
+ *  and ";" detection cannot be fooled by any of them, in either direction:
+ *  a semicolon or keyword hidden inside one of these must not slip past the
+ *  guard, and a keyword that is merely a quoted column/table name (e.g.
+ *  `` `delete` `` or `[create]`) must not be refused as if it were the SQL
+ *  keyword. Doubling the quote character escapes it inside '...', "...",
+ *  and `...`; [...] has no such escape in SQLite, so it ends at the first
+ *  "]". Verified empirically against node:sqlite 2026-09-06.
+ */
 function stripLiterals(sql: string): string {
   return sql
     .replace(/--[^\n]*/g, " ")
     .replace(/\/\*[\s\S]*?\*\//g, " ")
     .replace(/'(?:[^']|'')*'/g, "''")
-    .replace(/"(?:[^"]|"")*"/g, '""');
+    .replace(/"(?:[^"]|"")*"/g, '""')
+    .replace(/`(?:[^`]|``)*`/g, "``")
+    .replace(/\[[^\]]*\]/g, "[]");
 }
 
 export function guardSql(sql: string): null | SeratoError {
@@ -60,6 +70,15 @@ export async function runSql(
   if (isSeratoError(snap)) return snap;
 
   const limit = args.limit ?? DEFAULT_LIMIT;
+  // Two `try` blocks, not this file's usual single try/finally (see
+  // src/snapshot/index.ts, src/discovery/index.ts,
+  // src/tools/list-libraries.ts): opening the snapshot and running the
+  // query fail with different, meaningful error codes (snapshot_failed vs.
+  // invalid_argument), and db is only ever assigned once the first try has
+  // already succeeded, so there is nothing to leak if it throws. Folding
+  // both into one try/catch would need an extra discriminant (e.g.
+  // inspecting the caught error) to tell the two failure kinds apart; the
+  // split gets that for free.
   let db: DatabaseSync;
   try {
     db = new DatabaseSync(snap.path, { readOnly: true });
@@ -76,14 +95,25 @@ export async function runSql(
     // defence; see the risk register in the spec.
     db.exec("PRAGMA busy_timeout = 3000");
     const stmt = db.prepare(args.sql);
-    const all = stmt.all(...((args.params ?? []) as never[])) as Record<string, unknown>[];
-    const page = all.slice(0, limit);
-    const columns = page.length > 0 ? Object.keys(page[0]) : [];
-    return {
-      columns,
-      rows: page.map((r) => columns.map((c) => r[c])),
-      truncated: all.length > limit,
-    };
+    // columns() reads the statement's schema, not its data, so it is correct
+    // even when the query matches zero rows -- unlike reading Object.keys()
+    // off a first row, which has nothing to read in that case.
+    const columns = stmt.columns().map((c) => c.name);
+    // iterate(), not all(): all() would materialise the entire result set
+    // (all matching rows, e.g. every track in a large library) just to have
+    // most of it thrown away right after. Stopping after limit + 1 rows --
+    // one past the cap -- is how truncated is known without ever reading,
+    // or holding in memory, anything beyond that.
+    const rows: unknown[][] = [];
+    let truncated = false;
+    for (const row of stmt.iterate(...((args.params ?? []) as never[]))) {
+      if (rows.length >= limit) {
+        truncated = true;
+        break;
+      }
+      rows.push(columns.map((c) => row[c]));
+    }
+    return { columns, rows, truncated };
   } catch (e) {
     return err("invalid_argument", `query failed: ${e instanceof Error ? e.message : String(e)}`, {
       reason: "query_error",

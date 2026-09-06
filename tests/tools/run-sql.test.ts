@@ -72,6 +72,14 @@ describe("guardSql", () => {
     const r = guardSql("select 1; Delete From asset");
     expect(r).not.toBeNull();
   });
+
+  it("allows a backtick-quoted identifier named after a banned keyword", () => {
+    expect(guardSql("SELECT `delete` FROM asset")).toBeNull();
+  });
+
+  it("allows a bracket-quoted identifier named after a banned keyword", () => {
+    expect(guardSql("SELECT [create] FROM asset")).toBeNull();
+  });
 });
 
 describe("run_sql", () => {
@@ -128,5 +136,16 @@ describe("run_sql", () => {
     const r = await runSql({ sql: "SELECT nope FROM asset" }, ctx());
     expect(isSeratoError(r)).toBe(true);
     if (isSeratoError(r)) expect(r.error.code).toBe("invalid_argument");
+  });
+
+  it("reports column names even when the query matches zero rows", async () => {
+    const r = await runSql(
+      { sql: "SELECT external_id, name FROM asset WHERE external_id = 999" },
+      ctx(),
+    );
+    if (isSeratoError(r)) throw new Error("unexpected error");
+    expect(r.columns).toEqual(["external_id", "name"]);
+    expect(r.rows).toEqual([]);
+    expect(r.truncated).toBe(false);
   });
 });
