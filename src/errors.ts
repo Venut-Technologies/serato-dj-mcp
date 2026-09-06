@@ -1,7 +1,10 @@
 /**
  * Closed taxonomy of error codes. Errors are returned as values, never
- * thrown across the tool boundary: a thrown ZodError surfaces to the model
- * as a protocol failure with no code, and the model cannot act on it.
+ * thrown across the tool boundary: anything that escapes as a throw is
+ * turned into bare prose with no code -- measured 2026-09-06, a ZodError
+ * reached the model as isError text reading "MCP error -32602: Input
+ * validation error: ..." -- which the model cannot dispatch on. Argument
+ * validation goes through parseToolArgs (args.ts) for exactly that reason.
  */
 export const ERROR_CODES = {
   library_not_found: "library_not_found",

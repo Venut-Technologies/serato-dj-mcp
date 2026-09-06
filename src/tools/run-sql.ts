@@ -1,5 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
+import { parseToolArgs } from "../args.js";
+import { resolveLibrary } from "../discovery/index.js";
 import { ok, type Warning, warningSchema } from "../envelope.js";
 import { err, isSeratoError, type SeratoError } from "../errors.js";
 import { takeSnapshot } from "../snapshot/index.js";
@@ -162,9 +164,17 @@ export function guardSql(sql: string): null | SeratoError {
   return null;
 }
 
+/**
+ * `raw` is whatever the caller sent, unparsed: the arguments of a tool are
+ * validated here, by the tool that owns the schema, rather than by the
+ * transport above it (see parseToolArgs in ../args.ts and the note on
+ * dispatch in ../server.ts). Calling this function directly -- a test, a
+ * future in-process caller -- therefore gets the same validation and the
+ * same `invalid_argument` value as a call arriving over MCP.
+ */
 export async function runSql(
-  args: { sql: string; params?: (string | number | null)[]; limit?: number },
-  ctx: { livePath: string; cacheDir: string },
+  raw: unknown,
+  ctx: { library?: string; roots?: string[]; cacheDir: string },
 ): Promise<
   | ({ columns: string[]; rows: unknown[][]; truncated: boolean } & {
       generation?: string;
@@ -172,10 +182,20 @@ export async function runSql(
     })
   | SeratoError
 > {
+  const args = parseToolArgs(runSqlInput, raw);
+  if (isSeratoError(args)) return args;
+
   const guarded = guardSql(args.sql);
   if (guarded) return guarded;
 
-  const snap = await takeSnapshot(ctx.livePath, ctx.cacheDir);
+  // Resolved here rather than handed in: one shared resolver for every tool
+  // (spec 3.1 keeps the tool layer clear of the server, so a resolution
+  // living in server.ts could only ever serve one caller). Ordered after
+  // guardSql so a refused statement costs no filesystem work.
+  const lib = resolveLibrary({ library: ctx.library, roots: ctx.roots });
+  if (isSeratoError(lib)) return lib;
+
+  const snap = await takeSnapshot(lib.masterPath, ctx.cacheDir);
   if (isSeratoError(snap)) return snap;
 
   const limit = args.limit ?? DEFAULT_LIMIT;

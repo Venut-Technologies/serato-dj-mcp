@@ -125,9 +125,14 @@ describe("guardSql", () => {
 });
 
 describe("run_sql", () => {
+  // library, not livePath: run_sql resolves its own library through the
+  // shared resolver now (resolveLibrary in ../../src/discovery/index.ts), the
+  // same way every P2 tool will. livePath comes back too, for the one test
+  // below that has to take a snapshot itself to compare generations.
   const ctx = () => {
     const dir = tmp();
     return {
+      library: dir,
       livePath: makeMasterFixture(dir, {
         tracks: [
           { externalId: 1, portableId: "Users/x/a.flac", name: "A" },

@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
+import { parseToolArgs } from "../args.js";
 import { discover, type LibraryInfo } from "../discovery/index.js";
 import { ok, type Warning, warningSchema } from "../envelope.js";
 import { isSeratoError, type SeratoError } from "../errors.js";
@@ -83,16 +84,24 @@ function locationsOf(dir: string): LocationsResult {
   }
 }
 
-export function listLibraries(opts: {
-  library?: string;
-  roots: string[];
-}):
-  | ({ libraries: LibraryEntry[]; active: string | null } & { warnings?: Warning[] })
-  | SeratoError {
-  const found = discover({
-    library: opts.library,
-    roots: opts.roots.length ? opts.roots : undefined,
-  });
+/**
+ * Takes no arguments, and still parses them: `raw` goes through the same
+ * helper every other tool uses (../args.ts), so "this tool accepts nothing"
+ * is a statement its schema makes rather than one the dispatch layer makes
+ * on its behalf. `opts` is server configuration, not model input, and is
+ * therefore not part of that schema.
+ */
+export function listLibraries(
+  raw: unknown,
+  opts: {
+    library?: string;
+    roots: string[];
+  },
+): ({ libraries: LibraryEntry[]; active: string | null } & { warnings?: Warning[] }) | SeratoError {
+  const args = parseToolArgs(listLibrariesInput, raw);
+  if (isSeratoError(args)) return args;
+
+  const found = discover({ library: opts.library, roots: opts.roots });
   if (isSeratoError(found)) return found;
 
   const warnings: Warning[] = [];

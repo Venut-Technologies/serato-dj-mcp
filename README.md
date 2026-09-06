@@ -48,7 +48,10 @@ Read this before deciding what to trust.
   pass `--library` explicitly; the cache and state directories will not
   follow Windows conventions either.
 - **Reads go through a snapshot**, so an answer reflects the library as of the
-  last snapshot, not the current instant.
+  last snapshot, not the current instant. A snapshot is reused for up to two
+  seconds, so while Serato is writing an answer can be that far behind. Only
+  the current snapshot of each library is kept in `--cache-dir`; older ones
+  are deleted as soon as a newer one is published.
 - **No write tools exist in this build.**
 - **`rating`, the streaming flag and `analysis_flags` are passed through
   uninterpreted.** On the reference library `rating` was NULL on all 19

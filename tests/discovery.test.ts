@@ -3,7 +3,13 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
-import { defaultRoots, detectLibrary, discover } from "../src/discovery/index.js";
+import {
+  defaultRoots,
+  detectLibrary,
+  discover,
+  resolveLibrary,
+  searchLocations,
+} from "../src/discovery/index.js";
 import { isSeratoError } from "../src/errors.js";
 import { makeMasterFixture } from "./fixtures/make.js";
 
@@ -91,5 +97,60 @@ describe("discovery", () => {
     expect(defaultRoots()[0]).toBe(
       join(homedir(), "Library", "Application Support", "Serato", "Library"),
     );
+  });
+});
+
+describe("resolveLibrary", () => {
+  it("returns the readable 4.x library with its master.sqlite path", () => {
+    const dir = tmp();
+    const master = makeMasterFixture(dir, { tracks: [] });
+    const r = resolveLibrary({ library: dir });
+    if (isSeratoError(r)) throw new Error("unexpected error");
+    expect(r.masterPath).toBe(master);
+    expect(r.version).toBe("4.x");
+  });
+
+  // The three refusals below are the reason this is a shared function
+  // rather than a find() at each call site: each one names what was found
+  // instead of falling back to a generic snapshot_failed later on.
+  it("refuses a 3.x-only result by naming the version, not by reporting not-found", () => {
+    const dir = tmp();
+    writeFileSync(join(dir, "database V2"), "binary");
+    const r = resolveLibrary({ library: dir });
+    expect(isSeratoError(r)).toBe(true);
+    if (!isSeratoError(r)) return;
+    expect(r.error.code).toBe("unsupported_version");
+    expect(r.error.details).toMatchObject({
+      detected_version: "3.x",
+      candidates: [{ path: dir, version: "3.x", status: "ok" }],
+    });
+  });
+
+  it("reports library_not_found with searched[] when the only candidate is unreadable", () => {
+    const dir = tmp();
+    writeFileSync(join(dir, "master.sqlite"), "not sqlite");
+    const r = resolveLibrary({ library: dir });
+    expect(isSeratoError(r)).toBe(true);
+    if (!isSeratoError(r)) return;
+    expect(r.error.code).toBe("library_not_found");
+    expect(r.error.details).toMatchObject({
+      searched: [dir],
+      candidates: [{ path: dir, version: "4.x", status: "unreadable" }],
+    });
+  });
+
+  it("passes a discovery failure straight through", () => {
+    const r = resolveLibrary({ library: join(tmp(), "nope") });
+    expect(isSeratoError(r)).toBe(true);
+    if (isSeratoError(r)) expect(r.error.code).toBe("library_not_found");
+  });
+
+  // Cli.roots is always an array, so every caller would otherwise have to
+  // repeat `roots.length ? roots : undefined`. Forgetting it turns a plain
+  // default-location lookup into a library_not_found with an empty
+  // searched[], which reads as "your library is missing" rather than "this
+  // server looked nowhere".
+  it("treats an empty roots list as no roots given, not as search nowhere", () => {
+    expect(searchLocations({ roots: [] })).toEqual(defaultRoots());
   });
 });

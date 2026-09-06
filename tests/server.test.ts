@@ -243,4 +243,67 @@ describe("server", () => {
     const payload = JSON.parse((result.content as { type: string; text: string }[])[0].text);
     expect(payload.error.code).toBe("invalid_argument");
   });
+  // The whole point of serving tools/call ourselves (see the note on
+  // dispatch in ../src/server.ts): a malformed argument now comes back as a
+  // value from the taxonomy instead of the SDK's own prose. Measured before
+  // the change, the same call produced isError text reading "MCP error
+  // -32602: Input validation error: Invalid arguments for tool run_sql: Too
+  // big: expected number to be <=500 at limit" -- readable, but with no
+  // error.code for the model to dispatch on and no way for any helper of
+  // ours to shape it. listTools() runs first because that is what a real
+  // client does, and because it is what builds the structuredContent
+  // validator that must not touch this response.
+  it("a malformed argument comes back as invalid_argument, not as SDK prose", async () => {
+    const s = createServer(cli({ allowRawSql: true }));
+    const result = await callToolAfterListingOverTheWire(s, "run_sql", {
+      sql: "SELECT 1",
+      limit: 1000,
+    });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toBeUndefined();
+    const payload = JSON.parse((result.content as { type: string; text: string }[])[0].text);
+    expect(payload.error.code).toBe("invalid_argument");
+    expect(payload.error.details.reason).toBe("schema_violation");
+    expect(payload.error.details.issues[0].path).toBe("limit");
+  });
+
+  // Taking the handlers over means nothing else generates the advertised
+  // schema any more, so a mistake there would silently strip the model of
+  // every constraint it plans calls against -- and every other test in this
+  // file would still pass. The expected object is the exact schema the SDK's
+  // own conversion advertised before the change, captured from a live
+  // client on 2026-09-06.
+  it("still advertises the full input schema, constraints included", async () => {
+    const s = createServer(cli({ allowRawSql: true }));
+    const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "test-client", version: "0.0.0" });
+    await Promise.all([s.connect(serverTransport), client.connect(clientTransport)]);
+    try {
+      const { tools } = await client.listTools();
+      const runSqlTool = tools.find((t) => t.name === "run_sql");
+      expect(runSqlTool?.inputSchema).toEqual({
+        $schema: "http://json-schema.org/draft-07/schema#",
+        type: "object",
+        properties: {
+          sql: { type: "string", minLength: 1 },
+          params: { type: "array", items: { type: ["string", "number", "null"] } },
+          limit: { type: "integer", minimum: 1, maximum: 500 },
+        },
+        required: ["sql"],
+      });
+      expect(runSqlTool?.annotations).toMatchObject({ readOnlyHint: true });
+      expect(runSqlTool?.title).toBe("Run read-only SQL");
+    } finally {
+      await client.close();
+    }
+  });
+
+  // A gated-off tool is indistinguishable from one that never existed, and
+  // both must answer rather than hang or crash the connection.
+  it("answers a call to a tool that is not registered", async () => {
+    const s = createServer(cli());
+    const result = await callToolAfterListingOverTheWire(s, "run_sql", { sql: "SELECT 1" });
+    expect(result.isError).toBe(true);
+    expect((result.content as { type: string; text: string }[])[0].text).toContain("not found");
+  });
 });

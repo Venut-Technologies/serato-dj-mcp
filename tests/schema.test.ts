@@ -104,4 +104,12 @@ describe("schema introspection", () => {
   it("prefers length_ms over length_sec for duration", () => {
     expect(ASSET_FIELD_COLUMNS.length[0]).toBe("length_ms");
   });
+
+  // Spec 2.6: key is the one field whose candidates are not alternatives.
+  // key_value alone covers 39 of 118 real tracks; the text column carries
+  // the other 75 in Open Key notation. A projection that stopped at the
+  // first candidate would silently lose them.
+  it("asks for both key columns, not just the authoritative one", () => {
+    expect(ASSET_FIELD_COLUMNS.key).toEqual(["key_value", "key"]);
+  });
 });
