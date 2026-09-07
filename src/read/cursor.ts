@@ -16,8 +16,9 @@ function canonical(value: unknown): string {
   return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`).join(",")}}`;
 }
 
-/** Identity of the query a cursor belongs to: every argument except the ones
- *  that legitimately change between pages (cursor and limit). */
+/** Identity of the query a cursor belongs to. The caller must pass only the
+ *  arguments that define the query, excluding cursor and limit (which
+ *  legitimately change between pages). */
 export function fingerprint(args: unknown): string {
   return createHash("sha256").update(canonical(args)).digest("hex").slice(0, 16);
 }
@@ -88,7 +89,8 @@ export function checkCursor(
     !Array.isArray(key) ||
     key.length !== 3 ||
     typeof key[0] !== "number" ||
-    typeof key[2] !== "number"
+    typeof key[2] !== "number" ||
+    (typeof key[1] !== "string" && typeof key[1] !== "number" && key[1] !== null)
   ) {
     return malformed();
   }

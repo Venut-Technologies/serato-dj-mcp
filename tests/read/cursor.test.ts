@@ -88,4 +88,31 @@ describe("checkCursor", () => {
     expect(isSeratoError(r)).toBe(true);
     if (isSeratoError(r)) expect(r.error.details?.reason).toBe("cursor_malformed");
   });
+
+  it("refuses a cursor whose middle element has the wrong type", () => {
+    // Test with an object in the middle element
+    const objRaw = Buffer.from(
+      JSON.stringify({ fp: "abc", gen: "gen1", key: [0, {}, 7] }),
+    ).toString("base64url");
+    const objResult = checkCursor(objRaw, "abc", "gen1");
+    expect(isSeratoError(objResult)).toBe(true);
+    if (isSeratoError(objResult)) expect(objResult.error.details?.reason).toBe("cursor_malformed");
+
+    // Test with an array in the middle element
+    const arrRaw = Buffer.from(
+      JSON.stringify({ fp: "abc", gen: "gen1", key: [0, [], 7] }),
+    ).toString("base64url");
+    const arrResult = checkCursor(arrRaw, "abc", "gen1");
+    expect(isSeratoError(arrResult)).toBe(true);
+    if (isSeratoError(arrResult)) expect(arrResult.error.details?.reason).toBe("cursor_malformed");
+
+    // Test with a boolean in the middle element
+    const boolRaw = Buffer.from(
+      JSON.stringify({ fp: "abc", gen: "gen1", key: [0, true, 7] }),
+    ).toString("base64url");
+    const boolResult = checkCursor(boolRaw, "abc", "gen1");
+    expect(isSeratoError(boolResult)).toBe(true);
+    if (isSeratoError(boolResult))
+      expect(boolResult.error.details?.reason).toBe("cursor_malformed");
+  });
 });
