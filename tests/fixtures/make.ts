@@ -12,6 +12,10 @@ export type TrackSeed = {
   artist?: string;
   bpm?: number | null;
   keyValue?: number;
+  /** The text `key` column. Serato leaves it filled even when its own parser
+   *  gives up and writes -1 into key_value -- 75 of 118 real tracks, measured
+   *  2026-09-06. */
+  keyText?: string;
   genre?: string;
   timeAdded?: number;
   isMissing?: number;
@@ -63,9 +67,9 @@ export function makeMasterFixture(
   // without a default. Measured 2026-09-03.
   const ins = db.prepare(
     `INSERT INTO asset (location_id, external_id, portable_id, file_name, name, artist,
-                        bpm, key_value, genre, time_added, is_missing, third_party_type,
+                        bpm, key_value, key, genre, time_added, is_missing, third_party_type,
                         analysis_flags)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   for (const t of opts.tracks ?? []) {
     ins.run(
@@ -77,6 +81,7 @@ export function makeMasterFixture(
       t.artist ?? "",
       t.bpm === undefined ? null : t.bpm,
       t.keyValue ?? -1,
+      t.keyText ?? "",
       t.genre ?? "",
       t.timeAdded ?? 1_700_000_000,
       t.isMissing ?? 0,
