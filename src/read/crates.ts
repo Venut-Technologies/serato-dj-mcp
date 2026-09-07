@@ -21,7 +21,8 @@ export type Crate = {
  *
  * track_count is COUNT(DISTINCT ca.asset_id): location_container is 1:N, so
  * a plain COUNT(*) multiplies a crate's tracks by the number of locations
- * (observed on container 15 of the real library, which has two rows).
+ * (observed on container 15 of the real library, which has two rows --
+ * measured 2026-09-06).
  */
 const CRATE_QUERY = `
 WITH RECURSIVE chain(id, name, parent_id, type, space, path) AS (
