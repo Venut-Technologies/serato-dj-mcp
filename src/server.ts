@@ -9,6 +9,12 @@ import { z } from "zod";
 import type { Cli } from "./cli.js";
 import { toCallToolResult } from "./envelope.js";
 import {
+  listCratesDescription,
+  listCratesInput,
+  listCratesOutput,
+  listCratesTool,
+} from "./tools/list-crates.js";
+import {
   listLibraries,
   listLibrariesDescription,
   listLibrariesInput,
@@ -96,6 +102,23 @@ export function createServer(cli: Cli): Server {
       ),
       call: async (raw) =>
         toCallToolResult(listLibraries(raw, { library: cli.library, roots: cli.roots })),
+    },
+    {
+      descriptor: describeTool(
+        "list_crates",
+        "List Serato crates",
+        listCratesDescription,
+        listCratesInput,
+        listCratesOutput,
+      ),
+      call: async (raw) =>
+        toCallToolResult(
+          await listCratesTool(raw, {
+            library: cli.library,
+            roots: cli.roots,
+            cacheDir: cli.cacheDir,
+          }),
+        ),
     },
   ];
 
