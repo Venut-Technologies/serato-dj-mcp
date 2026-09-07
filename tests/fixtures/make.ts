@@ -21,6 +21,12 @@ export type TrackSeed = {
   isMissing?: number;
   thirdPartyType?: number;
   analysisFlags?: number;
+  album?: string;
+  comments?: string;
+  rating?: number | null;
+  lengthMs?: number | null;
+  isStale?: number;
+  fileSize?: number | null;
 };
 
 /**
@@ -41,9 +47,23 @@ const RUNTIME_FUNCTION_TRIGGERS = [
 const LOCATION_UUID = Buffer.from("22222222222222222222222222222222", "hex");
 const LOCATION_ID = 2;
 
+/** The Serato Library space and its root container, as they are numbered in
+ *  the real master.sqlite (measured 2026-09-06). Every crate hangs off this
+ *  root, which is how Serato itself lays them out. */
+const SPACE_ID = 5;
+const SPACE_ROOT_CONTAINER_ID = 5;
+
+export type CrateSeed = {
+  id: number;
+  name: string;
+  /** external_id of each track, not asset.id: the seeds are written with
+   *  external_id, and asset.id is assigned by SQLite. */
+  trackExternalIds: number[];
+};
+
 export function makeMasterFixture(
   dir: string,
-  opts: { tracks?: TrackSeed[]; userVersion?: number } = {},
+  opts: { tracks?: TrackSeed[]; crates?: CrateSeed[]; userVersion?: number } = {},
 ): string {
   const path = join(dir, "master.sqlite");
   const db = new DatabaseSync(path);
@@ -63,13 +83,29 @@ export function makeMasterFixture(
     "/Users/x/Library/Application Support/Serato/Library/root.sqlite",
   );
 
+  db.prepare("INSERT INTO space (id, name) VALUES (?, ?)").run(SPACE_ID, "Serato Library");
+  // container.list_order is NOT NULL and has no default -- including on the
+  // space root, which is easy to miss because Serato's own root looks empty.
+  db.prepare(
+    "INSERT INTO container (id, parent_id, name, type, space_id, list_order) VALUES (?, NULL, ?, 0, ?, 0)",
+  ).run(SPACE_ROOT_CONTAINER_ID, "Serato Library root", SPACE_ID);
+
   // external_id and location_id are the only NOT NULL columns of asset
   // without a default. Measured 2026-09-03.
+  //
+  // The *_norm columns are filled here because the trigger that normally
+  // fills them (after_asset_insert) calls serato_str_norm, a function only
+  // the Serato process has, so the fixture drops it. Lowercasing is what
+  // serato_str_norm was observed to do: "Hey You! - Scratch Sample" ->
+  // "hey you! - scratch sample" (spec 2.9.1). Without this every _norm is
+  // NULL and any test that touches search or text ordering is measuring
+  // nothing.
   const ins = db.prepare(
-    `INSERT INTO asset (location_id, external_id, portable_id, file_name, name, artist,
-                        bpm, key_value, key, genre, time_added, is_missing, third_party_type,
-                        analysis_flags)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    `INSERT INTO asset (location_id, external_id, portable_id, file_name, name, artist, album,
+                        comments, bpm, key_value, key, genre, rating, length_ms, time_added,
+                        is_missing, is_stale, third_party_type, analysis_flags, file_size,
+                        name_norm, artist_norm, album_norm, genre_norm, comments_norm)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   for (const t of opts.tracks ?? []) {
     ins.run(
@@ -79,15 +115,82 @@ export function makeMasterFixture(
       t.portableId.split("/").pop() ?? t.portableId,
       t.name,
       t.artist ?? "",
+      t.album ?? "",
+      t.comments ?? "",
       t.bpm === undefined ? null : t.bpm,
       t.keyValue ?? -1,
       t.keyText ?? "",
       t.genre ?? "",
+      t.rating === undefined ? null : t.rating,
+      t.lengthMs === undefined ? null : t.lengthMs,
       t.timeAdded ?? 1_700_000_000,
       t.isMissing ?? 0,
+      t.isStale ?? 0,
       t.thirdPartyType ?? 0,
       t.analysisFlags ?? 31,
+      t.fileSize === undefined ? null : t.fileSize,
+      t.name.toLowerCase(),
+      (t.artist ?? "").toLowerCase(),
+      (t.album ?? "").toLowerCase(),
+      (t.genre ?? "").toLowerCase(),
+      (t.comments ?? "").toLowerCase(),
     );
+  }
+
+  // One space_asset row per track, exactly as the real library has (118
+  // tracks, 118 rows, all in space 5). container_asset.space_asset_id is NOT
+  // NULL with a foreign key to this table, and node:sqlite enforces foreign
+  // keys by default (verified 2026-09-07), so a crate cannot be seeded
+  // without these rows.
+  const assets = db
+    .prepare("SELECT id, external_id FROM asset WHERE location_id = ? ORDER BY id")
+    .all(LOCATION_ID) as { id: number; external_id: number }[];
+  const assetIdByExternalId = new Map(assets.map((a) => [a.external_id, a.id]));
+  const spaceAssetIdByAssetId = new Map<number, number>();
+  let spaceAssetId = 0;
+  for (const asset of assets) {
+    spaceAssetId += 1;
+    db.prepare("INSERT INTO space_asset (id, asset_id, space_id) VALUES (?, ?, ?)").run(
+      spaceAssetId,
+      asset.id,
+      SPACE_ID,
+    );
+    spaceAssetIdByAssetId.set(asset.id, spaceAssetId);
+  }
+
+  let locationContainerId = 0;
+  let containerAssetId = 0;
+  for (const crate of opts.crates ?? []) {
+    db.prepare(
+      "INSERT INTO container (id, parent_id, name, type, space_id, list_order) VALUES (?, ?, ?, 1, ?, ?)",
+    ).run(crate.id, SPACE_ROOT_CONTAINER_ID, crate.name, SPACE_ID, crate.id);
+
+    locationContainerId += 1;
+    db.prepare(
+      "INSERT INTO location_container (id, container_id, location_id) VALUES (?, ?, ?)",
+    ).run(locationContainerId, crate.id, LOCATION_ID);
+
+    // list_order follows the order the seed lists them in: that is the DJ's
+    // running order, and get_crate_tracks is required to preserve it.
+    let listOrder = 0;
+    for (const externalId of crate.trackExternalIds) {
+      const assetId = assetIdByExternalId.get(externalId);
+      if (assetId === undefined) {
+        throw new Error(`crate ${crate.name} references unknown external_id ${externalId}`);
+      }
+      containerAssetId += 1;
+      listOrder += 1;
+      db.prepare(
+        `INSERT INTO container_asset (id, asset_id, location_container_id, space_asset_id, list_order)
+         VALUES (?, ?, ?, ?, ?)`,
+      ).run(
+        containerAssetId,
+        assetId,
+        locationContainerId,
+        spaceAssetIdByAssetId.get(assetId),
+        listOrder,
+      );
+    }
   }
 
   db.close();
