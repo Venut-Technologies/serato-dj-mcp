@@ -21,6 +21,12 @@ import {
   listLibrariesOutput,
 } from "./tools/list-libraries.js";
 import { runSql, runSqlDescription, runSqlInput, runSqlOutput } from "./tools/run-sql.js";
+import {
+  searchTracks,
+  searchTracksDescription,
+  searchTracksInput,
+  searchTracksOutput,
+} from "./tools/search-tracks.js";
 
 const VERSION = "0.1.0";
 
@@ -114,6 +120,23 @@ export function createServer(cli: Cli): Server {
       call: async (raw) =>
         toCallToolResult(
           await listCratesTool(raw, {
+            library: cli.library,
+            roots: cli.roots,
+            cacheDir: cli.cacheDir,
+          }),
+        ),
+    },
+    {
+      descriptor: describeTool(
+        "search_tracks",
+        "Search Serato tracks",
+        searchTracksDescription,
+        searchTracksInput,
+        searchTracksOutput,
+      ),
+      call: async (raw) =>
+        toCallToolResult(
+          await searchTracks(raw, {
             library: cli.library,
             roots: cli.roots,
             cacheDir: cli.cacheDir,
