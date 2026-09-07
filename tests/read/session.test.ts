@@ -1,9 +1,11 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { isSeratoError } from "../../src/errors.js";
 import { readSession, schemaWarnings } from "../../src/read/session.js";
+import { takeSnapshot } from "../../src/snapshot/index.js";
 import { makeMasterFixture } from "../fixtures/make.js";
 
 const tmp = () => mkdtempSync(join(tmpdir(), "serato-sess-"));
@@ -60,6 +62,38 @@ describe("readSession", () => {
     // The fixture's connection row points at root.sqlite, whose volume root
     // is "/" (spec 2.3).
     expect(r).toEqual([[2, "/"]]);
+  });
+
+  // Spec 3.3: unknown schemas warn and degrade, never refuse. If the
+  // connection table is missing or renamed (common in unknown versions),
+  // volumeRoots() returns an empty map and the session succeeds.
+  it("degrades gracefully when connection table is missing", async () => {
+    const libDir = tmp();
+    makeMasterFixture(libDir, {
+      tracks: [{ externalId: 1, portableId: "Users/x/a.flac", name: "A" }],
+    });
+    const cacheDir = tmp();
+
+    // Snapshot the library, then drop the connection table to simulate
+    // an unknown schema variant.
+    const snapshot = await takeSnapshot(join(libDir, "master.sqlite"), cacheDir);
+    if (isSeratoError(snapshot)) throw new Error("unexpected snapshot error");
+
+    const writable = new DatabaseSync(snapshot.path, { readOnly: false });
+    writable.exec("DROP TABLE connection");
+    writable.close();
+
+    // Session should succeed with empty volumeRoots, not refuse.
+    const r = await readSession({ library: libDir, roots: [], cacheDir }, (h) => ({
+      volumeRootsEmpty: h.volumeRoots.size === 0,
+      canQueryAssets:
+        (h.db.prepare("SELECT count(*) AS n FROM asset").get() as { n: number }).n > 0,
+    }));
+    expect(isSeratoError(r)).toBe(false);
+    if (!isSeratoError(r)) {
+      expect(r.volumeRootsEmpty).toBe(true);
+      expect(r.canQueryAssets).toBe(true);
+    }
   });
 
   // Spec 3.3: an unknown user_version is a warning, never a refusal --

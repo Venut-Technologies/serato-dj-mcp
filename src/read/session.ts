@@ -53,12 +53,13 @@ export async function readSession<T>(
     // blocks the server. busy_timeout plus the limit ceilings is the whole
     // defence (spec 3.1, risk register in section 12).
     db.exec("PRAGMA busy_timeout = 3000");
+    const schema = introspect(db);
     return fn({
       db,
-      schema: introspect(db),
+      schema,
       snapshot,
       libraryPath: lib.path,
-      volumeRoots: volumeRoots(db),
+      volumeRoots: volumeRoots(db, schema.tables),
     });
   } catch (e) {
     // Errors are values (errors.ts). Anything thrown from here is our own
@@ -72,8 +73,11 @@ export async function readSession<T>(
   }
 }
 
-function volumeRoots(db: DatabaseSync): Map<number, string> {
+function volumeRoots(db: DatabaseSync, tables: Set<string>): Map<number, string> {
   const roots = new Map<number, string>();
+  // Guard against unknown schema variants that lack or rename the connection
+  // table. Spec 3.3: unfamiliar schemas warn and degrade, never refuse.
+  if (!tables.has("connection")) return roots;
   const rows = db.prepare("SELECT location_id, database_uri FROM connection").all() as {
     location_id: number;
     database_uri: string;
