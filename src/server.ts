@@ -9,6 +9,12 @@ import { z } from "zod";
 import type { Cli } from "./cli.js";
 import { toCallToolResult } from "./envelope.js";
 import {
+  getTracks,
+  getTracksDescription,
+  getTracksInput,
+  getTracksOutput,
+} from "./tools/get-tracks.js";
+import {
   listCratesDescription,
   listCratesInput,
   listCratesOutput,
@@ -141,6 +147,19 @@ export function createServer(cli: Cli): Server {
             roots: cli.roots,
             cacheDir: cli.cacheDir,
           }),
+        ),
+    },
+    {
+      descriptor: describeTool(
+        "get_tracks",
+        "Get Serato tracks by id",
+        getTracksDescription,
+        getTracksInput,
+        getTracksOutput,
+      ),
+      call: async (raw) =>
+        toCallToolResult(
+          await getTracks(raw, { library: cli.library, roots: cli.roots, cacheDir: cli.cacheDir }),
         ),
     },
   ];
