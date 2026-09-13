@@ -178,18 +178,20 @@ export function makeMasterFixture(
       if (assetId === undefined) {
         throw new Error(`crate ${crate.name} references unknown external_id ${externalId}`);
       }
+      // spaceAssetIdByAssetId was populated from the same `assets` array
+      // assetId is drawn from, so this always hits -- but node:sqlite's
+      // params reject `undefined`, so the lookup is checked rather than
+      // asserted non-null.
+      const spaceAssetId = spaceAssetIdByAssetId.get(assetId);
+      if (spaceAssetId === undefined) {
+        throw new Error(`asset ${assetId} has no space_asset row`);
+      }
       containerAssetId += 1;
       listOrder += 1;
       db.prepare(
         `INSERT INTO container_asset (id, asset_id, location_container_id, space_asset_id, list_order)
          VALUES (?, ?, ?, ?, ?)`,
-      ).run(
-        containerAssetId,
-        assetId,
-        locationContainerId,
-        spaceAssetIdByAssetId.get(assetId),
-        listOrder,
-      );
+      ).run(containerAssetId, assetId, locationContainerId, spaceAssetId, listOrder);
     }
   }
 
