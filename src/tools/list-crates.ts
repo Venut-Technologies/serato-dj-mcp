@@ -9,12 +9,16 @@ import {
   encodeCursor,
   fingerprint,
   MAX_CRATE_LIMIT,
+  MAX_CURSOR_LENGTH,
 } from "../read/cursor.js";
 import { type ReadCtx, readSession, schemaWarnings } from "../read/session.js";
 
 export const listCratesInput = z.object({
   limit: z.number().int().min(1).max(MAX_CRATE_LIMIT).optional(),
-  cursor: z.string().optional(),
+  // Same bound as every other cursor-taking tool, and for the same reason
+  // (review 2026-09-13, finding 1): one unbounded cursor anywhere is one
+  // unbounded cursor too many.
+  cursor: z.string().max(MAX_CURSOR_LENGTH).optional(),
 });
 
 const crateSchema = z.object({

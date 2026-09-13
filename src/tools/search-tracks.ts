@@ -7,17 +7,47 @@ import {
   checkCursor,
   DEFAULT_TRACK_LIMIT,
   fingerprint,
+  MAX_CURSOR_LENGTH,
   MAX_TRACK_LIMIT,
   nextCursorFrom,
 } from "../read/cursor.js";
-import { DEFAULT_FIELDS, mapRow, resolveFields } from "../read/fields.js";
+import { ALL_FIELDS, DEFAULT_FIELDS, mapRow, resolveFields } from "../read/fields.js";
 import { buildFilters } from "../read/filters.js";
 import { type ReadCtx, readSession, schemaWarnings } from "../read/session.js";
 import { keysetPredicate, parseSort, SORT_FIELDS, sortExpressions } from "../read/sort.js";
 
+/**
+ * Bounds on model-supplied strings and arrays that feed straight into SQL
+ * text or parameter lists (review 2026-09-13, finding 1). Uncapped, `q`
+ * builds one ten-clause OR group per whitespace token, ANDed together:
+ * measured at 988 tokens that all match up to the last, the query itself ran
+ * for tens of seconds with no way to interrupt it (node:sqlite is
+ * synchronous); at 989 tokens SQLite's prepare() throws "Expression tree is
+ * too large (maximum depth 1000)", which readSession's outer catch turns
+ * into `snapshot_failed` -- telling the model the snapshot copy is broken
+ * rather than that its argument was too big. Twelve tokens covers any real
+ * search and stays far enough below 988 that the second failure mode is
+ * unreachable.
+ */
+const MAX_Q_LENGTH = 512;
+const MAX_Q_TOKENS = 12;
+/** 24 cells exist on the Camelot wheel; more is never meaningful, and an
+ *  unbounded IN list can exceed SQLite's bound-variable limit and surface as
+ *  `snapshot_failed` the same way an oversized `q` does. */
+const MAX_CAMELOT_CELLS = 24;
+const MAX_GENRE_LENGTH = 256;
+const MAX_CRATE_NAME_LENGTH = 256;
+
+/** Counts q's tokens the same way filters.ts splits them, so the schema
+ *  refuses exactly the inputs filters.ts would otherwise have to chew on. */
+function qTokenCount(q: string): number {
+  const trimmed = q.trim();
+  return trimmed === "" ? 0 : trimmed.split(/\s+/).length;
+}
+
 export const searchTracksInput = z
   .object({
-    q: z.string().optional(),
+    q: z.string().max(MAX_Q_LENGTH).optional(),
     bpm: z
       .object({
         min: z.number().optional(),
@@ -28,14 +58,28 @@ export const searchTracksInput = z
       .optional(),
     key: z
       .object({
-        camelot: z.array(z.string()).min(1).optional(),
+        camelot: z.array(z.string()).min(1).max(MAX_CAMELOT_CELLS).optional(),
         compatible_with: z.string().optional(),
       })
       .optional(),
-    genre: z.string().optional(),
-    rating: z.object({ min: z.number().optional(), max: z.number().optional() }).optional(),
+    genre: z.string().max(MAX_GENRE_LENGTH).optional(),
+    // The DDL carries CHECK (rating IS NULL OR rating BETWEEN 0 AND 1): rating
+    // is a 0..1 REAL, not 0..5 stars. Bounding min/max here turns the obvious
+    // wrong guess (e.g. min: 4) into an invalid_argument the model can act
+    // on, instead of a silent empty page (review 2026-09-13, finding 3).
+    rating: z
+      .object({
+        min: z.number().min(0).max(1).optional(),
+        max: z.number().min(0).max(1).optional(),
+      })
+      .optional(),
     added: z.object({ before: z.string().optional(), after: z.string().optional() }).optional(),
-    crate: z.object({ id: z.number().int().optional(), name: z.string().optional() }).optional(),
+    crate: z
+      .object({
+        id: z.number().int().optional(),
+        name: z.string().max(MAX_CRATE_NAME_LENGTH).optional(),
+      })
+      .optional(),
     flags: z
       .object({
         analyzed: z.boolean().optional(),
@@ -44,9 +88,9 @@ export const searchTracksInput = z
       })
       .optional(),
     sort: z.string().optional(),
-    fields: z.array(z.string()).min(1).optional(),
+    fields: z.array(z.string()).min(1).max(ALL_FIELDS.length).optional(),
     limit: z.number().int().min(1).max(MAX_TRACK_LIMIT).optional(),
-    cursor: z.string().optional(),
+    cursor: z.string().max(MAX_CURSOR_LENGTH).optional(),
   })
   // The only cross-field check that has to live here: the other two the spec
   // names are decided where the knowledge is -- bpm.around against min/max in
@@ -54,6 +98,14 @@ export const searchTracksInput = z
   .refine((v) => !(v.crate?.id !== undefined && v.crate?.name !== undefined), {
     error: "crate.id and crate.name cannot both be given",
     params: { reason: "crate_ref_conflict" },
+  })
+  // A per-field .max() on q would report "schema_violation" -- true but
+  // useless, since the model cannot tell a too-long q from a too-long
+  // anything else. This gets its own reason so the model knows exactly what
+  // to shorten (finding 1).
+  .refine((v) => v.q === undefined || qTokenCount(v.q) <= MAX_Q_TOKENS, {
+    error: `q has too many tokens (max ${MAX_Q_TOKENS})`,
+    params: { reason: "too_many_tokens" },
   });
 
 export const searchTracksOutput = z.object({
@@ -68,7 +120,7 @@ export const searchTracksDescription =
   "title, artist, album, genre and comments. Tonality is Camelot (`8A`); tracks whose key " +
   "Serato itself could not parse are included, and `key_source` says where each key came from. " +
   "`bpm.around` cannot be combined with `bpm.min`/`bpm.max`. `key.compatible_with` expands to " +
-  "the four mixable cells of the wheel. Sort is one of " +
+  "the four mixable cells of the wheel. `rating` is a 0 to 1 scale, not 0 to 5 stars. Sort is one of " +
   `${SORT_FIELDS.join(", ")} with an optional :asc/:desc; relevance needs a q. ` +
   `Default fields: ${DEFAULT_FIELDS.join(", ")}. Paths are redacted to ~.`;
 

@@ -7,10 +7,11 @@ import {
   checkCursor,
   DEFAULT_TRACK_LIMIT,
   fingerprint,
+  MAX_CURSOR_LENGTH,
   MAX_TRACK_LIMIT,
   nextCursorFrom,
 } from "../read/cursor.js";
-import { DEFAULT_FIELDS, mapRow, resolveFields } from "../read/fields.js";
+import { ALL_FIELDS, DEFAULT_FIELDS, mapRow, resolveFields } from "../read/fields.js";
 import { type ReadCtx, readSession, schemaWarnings } from "../read/session.js";
 import { keysetPredicate } from "../read/sort.js";
 
@@ -18,9 +19,13 @@ export const getCrateTracksInput = z
   .object({
     crate_id: z.number().int().optional(),
     crate_name: z.string().optional(),
-    fields: z.array(z.string()).min(1).optional(),
+    // Same bounds as search_tracks, and for the same reason (review
+    // 2026-09-13, finding 1): a caller must not be able to reach the
+    // unbounded-cursor or unbounded-fields failure through this tool just
+    // because search_tracks closed it off in its own schema.
+    fields: z.array(z.string()).min(1).max(ALL_FIELDS.length).optional(),
     limit: z.number().int().min(1).max(MAX_TRACK_LIMIT).optional(),
-    cursor: z.string().optional(),
+    cursor: z.string().max(MAX_CURSOR_LENGTH).optional(),
   })
   .refine((v) => !(v.crate_id !== undefined && v.crate_name !== undefined), {
     error: "crate_id and crate_name cannot both be given",

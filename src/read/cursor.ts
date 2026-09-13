@@ -57,6 +57,17 @@ export const MAX_CRATE_LIMIT = 200;
 export const DEFAULT_CRATE_LIMIT = 200;
 
 /**
+ * A cursor this server issued is base64url(fp(16 hex) + gen + a 3-element
+ * key), a few hundred bytes at most. 4096 is generous headroom above that
+ * while still bounding it: an unbounded `cursor` reaches checkCursor's
+ * JSON.parse with whatever size the caller sent, one more model-supplied
+ * string with no ceiling (review 2026-09-13, finding 1). Shared by every
+ * tool that takes a cursor, so the bound cannot be reached through one tool
+ * and missed through another.
+ */
+export const MAX_CURSOR_LENGTH = 4096;
+
+/**
  * Decodes a cursor and decides whether the caller may continue with it.
  *
  * A changed query is a refusal: continuing from a position that belongs to a

@@ -206,4 +206,42 @@ describe("search_tracks", () => {
     expect(r.tracks).toEqual([]);
     expect(r.next_cursor).toBeUndefined();
   });
+
+  // Review 2026-09-13 (finding 1): past ~988 whitespace tokens, q builds a
+  // WHERE clause deep enough that SQLite's prepare() throws "Expression tree
+  // is too large", which readSession's outer catch turns into
+  // snapshot_failed -- telling the model the snapshot is broken rather than
+  // that q was too big. The refusal has to happen here, in the schema, with
+  // a reason specific enough that the model knows to shorten q rather than
+  // retry the identical call.
+  it("refuses q with too many tokens, naming the reason", async () => {
+    const q = Array.from({ length: 13 }, (_, i) => `t${i}`).join(" ");
+    const r = await searchTracks({ q }, ctx());
+    expect(isSeratoError(r)).toBe(true);
+    if (isSeratoError(r)) {
+      expect(r.error.code).toBe("invalid_argument");
+      expect(r.error.details?.reason).toBe("too_many_tokens");
+    }
+  });
+
+  // A single very long token never reaches the 12-token cap, but it is the
+  // same unbounded-input shape: refused by the length cap instead, through
+  // the shared arg helper.
+  it("refuses a q longer than the length cap rather than executing it", async () => {
+    const r = await searchTracks({ q: "a".repeat(513) }, ctx());
+    expect(isSeratoError(r)).toBe(true);
+    if (isSeratoError(r)) {
+      expect(r.error.code).toBe("invalid_argument");
+      expect(r.error.details?.reason).toBe("schema_violation");
+    }
+  });
+
+  // Review 2026-09-13 (finding 3): rating is a 0..1 REAL (DDL: CHECK (rating
+  // IS NULL OR rating BETWEEN 0 AND 1)). min: 4 is the obvious wrong guess
+  // for a five-star field, and used to come back as a silent empty page.
+  it("refuses rating.min above the 0..1 scale", async () => {
+    const r = await searchTracks({ rating: { min: 4 } }, ctx());
+    expect(isSeratoError(r)).toBe(true);
+    if (isSeratoError(r)) expect(r.error.code).toBe("invalid_argument");
+  });
 });
