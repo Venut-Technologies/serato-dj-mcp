@@ -9,6 +9,12 @@ import { z } from "zod";
 import type { Cli } from "./cli.js";
 import { toCallToolResult } from "./envelope.js";
 import {
+  getCrateTracks,
+  getCrateTracksDescription,
+  getCrateTracksInput,
+  getCrateTracksOutput,
+} from "./tools/get-crate-tracks.js";
+import {
   getTracks,
   getTracksDescription,
   getTracksInput,
@@ -160,6 +166,23 @@ export function createServer(cli: Cli): Server {
       call: async (raw) =>
         toCallToolResult(
           await getTracks(raw, { library: cli.library, roots: cli.roots, cacheDir: cli.cacheDir }),
+        ),
+    },
+    {
+      descriptor: describeTool(
+        "get_crate_tracks",
+        "Get the tracks of a crate",
+        getCrateTracksDescription,
+        getCrateTracksInput,
+        getCrateTracksOutput,
+      ),
+      call: async (raw) =>
+        toCallToolResult(
+          await getCrateTracks(raw, {
+            library: cli.library,
+            roots: cli.roots,
+            cacheDir: cli.cacheDir,
+          }),
         ),
     },
   ];
