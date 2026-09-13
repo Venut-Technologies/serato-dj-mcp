@@ -168,7 +168,10 @@ function brokenPaths(ctx: CheckContext): CheckOutcome | undefined {
       ctx.warnings.push({
         code: "location_root_unknown",
         message: `no volume root could be derived for location ${locationId}, so its files were not checked on disk`,
-        details: { location_id: locationId, reason: "unparseable_database_uri" },
+        // Not "unparseable": volumeRoots (../read/session.ts) cannot tell an
+        // unreadable database_uri from a location with no connection row at
+        // all, and naming one of the two would be a guess.
+        details: { location_id: locationId, reason: "no_volume_root_derived" },
       });
       return false;
     }

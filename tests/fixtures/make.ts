@@ -2,6 +2,9 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
+// The anchor space's name is a production constant, not a fixture detail:
+// the crate query filters on it, so a rename must not desync silently.
+import { ANCHOR_SPACE_NAME } from "../../src/read/crates.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -125,7 +128,7 @@ export function makeMasterFixture(
   // untestable unless the fixture actually has one.
   container.run(SYNTHETIC_ROOT_CONTAINER_ID, null, "root", 0, null, 0);
 
-  space.run(SPACE_ID, "Serato Library");
+  space.run(SPACE_ID, ANCHOR_SPACE_NAME);
   container.run(
     SPACE_ROOT_CONTAINER_ID,
     SYNTHETIC_ROOT_CONTAINER_ID,
