@@ -46,7 +46,8 @@ export const getCrateTracksOutput = z.object({
 export const getCrateTracksDescription =
   "List the tracks of one crate, in the crate's own order -- the order the DJ arranged, not " +
   "the order they were added to the library. Give the crate by id or by exact name; an " +
-  `unknown name comes back with the list of names that exist. Default fields: ${DEFAULT_FIELDS.join(", ")}.`;
+  `unknown name comes back with the list of names that exist. Default fields: ${DEFAULT_FIELDS.join(", ")}. ` +
+  "Paths are redacted to ~.";
 
 export async function getCrateTracks(
   raw: unknown,

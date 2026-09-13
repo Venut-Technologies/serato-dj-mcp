@@ -1,12 +1,30 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { isSeratoError } from "../../src/errors.js";
 import { getCrateTracks } from "../../src/tools/get-crate-tracks.js";
 import { makeMasterFixture } from "../fixtures/make.js";
 
 const tmp = () => mkdtempSync(join(tmpdir(), "serato-gct-"));
+
+/**
+ * Opens the fixture writable so a test can build topology beyond what
+ * makeMasterFixture's seed API covers (a second location_container row for
+ * a crate that already contains the asset), then closes before the caller
+ * reopens the file read-only. Mirrors withWritableDb in
+ * tests/read/crates.test.ts, which exercises the same fan-out for
+ * listCrates's track_count.
+ */
+function withWritableDb(path: string, mutate: (db: DatabaseSync) => void): void {
+  const db = new DatabaseSync(path);
+  try {
+    mutate(db);
+  } finally {
+    db.close();
+  }
+}
 
 function ctx() {
   const dir = tmp();
@@ -71,5 +89,56 @@ describe("get_crate_tracks", () => {
     if (isSeratoError(r)) throw new Error("unexpected error");
     expect(r.tracks).toEqual([]);
     expect(r.crate.track_count).toBe(0);
+  });
+
+  // makeMasterFixture seeds exactly one location_container row per crate, so
+  // every test above passes just as well without the GROUP BY / min(list_order)
+  // in the query as with it -- nothing exercises the join this task's own
+  // code comment names as its reason (container 15 of the real library,
+  // measured 2026-09-06). This adds a second location_container row for the
+  // same crate and routes track B -- already in the crate -- through it too,
+  // with a lower list_order than either existing row, so a regression to a
+  // plain (non-grouped) query would both list B twice AND report the wrong
+  // position for it.
+  it("lists a track once, at its lowest list_order, even when reachable through two locations", async () => {
+    const dir = tmp();
+    const lib = makeMasterFixture(dir, {
+      tracks: [
+        { externalId: 1, portableId: "Users/x/1.flac", name: "A" },
+        { externalId: 2, portableId: "Users/x/2.flac", name: "B" },
+      ],
+      // list_order 1 for A, 2 for B via this seed.
+      crates: [{ id: 20, name: "Gigs 2026", trackExternalIds: [1, 2] }],
+    });
+
+    withWritableDb(lib, (wdb) => {
+      const assetB = wdb.prepare("SELECT id FROM asset WHERE external_id = 2").get() as {
+        id: number;
+      };
+      const spaceAssetB = wdb
+        .prepare("SELECT id FROM space_asset WHERE asset_id = ?")
+        .get(assetB.id) as { id: number };
+      const newLocationId = Number(
+        wdb.prepare("INSERT INTO location (path, uuid, revision) VALUES (NULL, NULL, 0)").run()
+          .lastInsertRowid,
+      );
+      const newLocationContainerId = Number(
+        wdb
+          .prepare("INSERT INTO location_container (container_id, location_id) VALUES (20, ?)")
+          .run(newLocationId).lastInsertRowid,
+      );
+      // list_order 0: lower than both existing rows (1 and 2), so min()
+      // should move B ahead of A if the grouping is doing its job.
+      wdb
+        .prepare(
+          "INSERT INTO container_asset (asset_id, location_container_id, space_asset_id, list_order) VALUES (?, ?, ?, 0)",
+        )
+        .run(assetB.id, newLocationContainerId, spaceAssetB.id);
+    });
+
+    const r = await getCrateTracks({ crate_id: 20 }, { library: dir, roots: [], cacheDir: tmp() });
+    if (isSeratoError(r)) throw new Error("unexpected error");
+    expect(r.tracks.map((t) => t.title)).toEqual(["B", "A"]);
+    expect(r.tracks.filter((t) => t.title === "B")).toHaveLength(1);
   });
 });
