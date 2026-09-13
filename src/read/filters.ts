@@ -43,8 +43,11 @@ export function compatibleCamelot(cell: string): string[] | null {
 }
 
 /** Escapes the LIKE metacharacters so a model sending "%" searches for a
- *  percent sign rather than matching the whole library. */
-function likeLiteral(value: string): string {
+ *  percent sign rather than matching the whole library. Exported: sort.ts
+ *  needs the identical rule for its relevance ranking, and two copies of an
+ *  escaping helper is the kind of duplication where divergence goes unnoticed
+ *  until it matters (review 2026-09-13, finding 4). */
+export function likeLiteral(value: string): string {
   return value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
 }
 

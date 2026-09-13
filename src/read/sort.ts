@@ -1,5 +1,6 @@
 import type { Warning } from "../envelope.js";
 import { err, type SeratoError } from "../errors.js";
+import { likeLiteral } from "./filters.js";
 
 /** [is the value NULL (0/1), the value itself, the row id]. The null flag is
  *  part of the key because NULLs sort last: without it `val > NULL` is NULL,
@@ -57,11 +58,6 @@ export function parseSort(raw: string | undefined, hasQuery: boolean): SortSpec 
     });
   }
   return { field, dir: direction ?? DEFAULT_DIRECTION[field] };
-}
-
-/** Escapes LIKE metacharacters; same rule as in filters.ts. */
-function likeLiteral(value: string): string {
-  return value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
 }
 
 /** Serato's normalised copy when the schema has it, the lowercased raw
