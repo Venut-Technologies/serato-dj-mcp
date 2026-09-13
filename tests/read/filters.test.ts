@@ -193,9 +193,69 @@ describe("buildFilters", () => {
   });
 
   // Spec 3.3 again: a schema without the column must not produce broken SQL.
-  it("skips a filter whose column this schema does not have", () => {
+  // Spec 3.5: and it must not drop the condition in silence either -- a
+  // dropped bpm window turns the whole library into "the tracks at 122-126".
+  it("skips a filter whose column this schema does not have, and says so", () => {
     const built = buildFilters({ genre: "house" }, new Set(["id", "name"]));
     if (isSeratoError(built)) throw new Error("unexpected error");
     expect(built.where).toEqual([]);
+    expect(built.warnings).toEqual([
+      expect.objectContaining({
+        code: "filter_unavailable",
+        details: { filter: "genre", columns: ["genre"] },
+      }),
+    ]);
+  });
+
+  it("warns for every filter kind this schema cannot express", () => {
+    const bare = new Set(["id", "name"]);
+    const built = buildFilters(
+      {
+        bpm: { min: 120 },
+        rating: { min: 0.5 },
+        added: { after: "2026-01-01" },
+        flags: { analyzed: true, missing: true, streaming: true },
+      },
+      bare,
+    );
+    if (isSeratoError(built)) throw new Error("unexpected error");
+    expect(built.where).toEqual([]);
+    expect(built.warnings.map((w) => (w.details as { filter: string }).filter)).toEqual([
+      "bpm",
+      "rating",
+      "added",
+      "flags.analyzed",
+      "flags.missing",
+      "flags.streaming",
+    ]);
+  });
+
+  // The q branch already chose the safe default -- an unsatisfiable filter
+  // rather than everything -- but an empty page still needs explaining.
+  it("warns when no column is searchable at all, and matches nothing", () => {
+    const built = buildFilters({ q: "rain" }, new Set(["id"]));
+    if (isSeratoError(built)) throw new Error("unexpected error");
+    expect(built.where).toEqual(["0"]);
+    expect(built.warnings).toEqual([
+      expect.objectContaining({
+        code: "filter_unavailable",
+        details: expect.objectContaining({ filter: "q" }),
+      }),
+    ]);
+  });
+
+  // Argument validation does not depend on the schema: the call is wrong
+  // either way, and refusing it is more useful than a warning about a
+  // condition that was never applicable.
+  it("still refuses a contradictory bpm argument when the column is missing", () => {
+    const r = buildFilters({ bpm: { around: 124, min: 100 } }, new Set(["id"]));
+    expect(isSeratoError(r)).toBe(true);
+    if (isSeratoError(r)) expect(r.error.details?.reason).toBe("bpm_around_conflict");
+  });
+
+  it("still refuses an unparseable date when the column is missing", () => {
+    const r = buildFilters({ added: { after: "last tuesday" } }, new Set(["id"]));
+    expect(isSeratoError(r)).toBe(true);
+    if (isSeratoError(r)) expect(r.error.details?.reason).toBe("bad_date");
   });
 });

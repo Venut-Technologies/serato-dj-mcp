@@ -153,6 +153,7 @@ export async function searchTracks(
 
     const filters = buildFilters(args, handle.schema.assetColumns, crateId);
     if (isSeratoError(filters)) return filters;
+    warnings.push(...filters.warnings);
 
     const hasQuery = args.q !== undefined && args.q.trim() !== "";
     const sort = parseSort(args.sort, hasQuery);
