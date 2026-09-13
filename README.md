@@ -27,6 +27,15 @@ protocol travels over stdout.
 - `list_libraries` — the libraries this server can see, with version, schema
   version and locations. Paths here are not redacted, so you can copy one into
   `--library`.
+- `search_tracks` — search by free text, BPM, key, genre, rating, date added, crate
+  membership and flags. Tonality is Camelot; a track whose key Serato itself could not
+  parse is still matched, and `key_source` says where the key came from. Paginated with an
+  opaque cursor; the default page is 25 tracks and nine fields.
+- `get_tracks` — fetch tracks by the ids `search_tracks` returned. Unknown ids come back in
+  `missing` rather than being dropped.
+- `list_crates` — the crates, with the space they belong to, their display path and how many
+  distinct tracks each holds. Smart crates and internal space roots are not listed.
+- `get_crate_tracks` — the tracks of one crate, in the crate's own order.
 - `run_sql` — one read-only `SELECT` against a snapshot copy. Registered only
   with `--allow-raw-sql`, because it returns raw rows with no path redaction.
 
@@ -57,3 +66,9 @@ Read this before deciding what to trust.
   uninterpreted.** On the reference library `rating` was NULL on all 19
   tracks, and `analysis_flags` did not correlate with whether a track had been
   analysed, so no meaning is claimed for them.
+- **Free-text search is not Serato's search.** Serato normalises text with a function only
+  its own process has, so `q` matches both the normalised columns and the raw ones and can
+  differ from what the application would find.
+- **A page taken while Serato is writing can straddle two snapshots.** Pagination is keyset,
+  so it continues from the same position on the newer copy and says so in
+  `warnings: snapshot_advanced`; a few rows may be repeated or skipped at the seam.
