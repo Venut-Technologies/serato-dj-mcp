@@ -88,6 +88,11 @@ export function makeMasterFixture(
      *  is the boot disk. Override it to model a library on an external
      *  volume, mounted or not. */
     connectionUri?: string;
+    /** Tracks to put into Serato's Prepare panel (container 14, a type = 1
+     *  container in its own space). Nothing that reads crates may return
+     *  them as crate members -- spec 2.4 -- and that claim needs a fixture
+     *  that can express it. */
+    prepareTrackExternalIds?: number[];
   } = {},
 ): string {
   const path = join(dir, "master.sqlite");
@@ -215,6 +220,41 @@ export function makeMasterFixture(
 
   let locationContainerId = 0;
   let containerAssetId = 0;
+  const spaceAsset = db.prepare("INSERT INTO space_asset (id, asset_id, space_id) VALUES (?,?,?)");
+  const locationContainer = db.prepare(
+    "INSERT INTO location_container (id, container_id, location_id) VALUES (?, ?, ?)",
+  );
+  const containerAsset = db.prepare(
+    `INSERT INTO container_asset (id, asset_id, location_container_id, space_asset_id, list_order)
+     VALUES (?, ?, ?, ?, ?)`,
+  );
+
+  const prepareIds = opts.prepareTrackExternalIds ?? [];
+  if (prepareIds.length > 0) {
+    locationContainerId += 1;
+    locationContainer.run(locationContainerId, PREPARE_CONTAINER_ID, LOCATION_ID);
+    const prepareLocationContainerId = locationContainerId;
+    let order = 0;
+    for (const externalId of prepareIds) {
+      const assetId = assetIdByExternalId.get(externalId);
+      if (assetId === undefined) {
+        throw new Error(`the Prepare panel references unknown external_id ${externalId}`);
+      }
+      // Its own space_asset row: space_asset is UNIQUE(asset_id, space_id),
+      // so a track in two spaces has two.
+      spaceAssetId += 1;
+      spaceAsset.run(spaceAssetId, assetId, PREPARE_SPACE_ID);
+      containerAssetId += 1;
+      order += 1;
+      containerAsset.run(
+        containerAssetId,
+        assetId,
+        prepareLocationContainerId,
+        spaceAssetId,
+        order,
+      );
+    }
+  }
   for (const crate of opts.crates ?? []) {
     container.run(crate.id, SPACE_ROOT_CONTAINER_ID, crate.name, 1, SPACE_ID, crate.id);
 

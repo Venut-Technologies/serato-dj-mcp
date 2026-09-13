@@ -38,6 +38,14 @@ protocol travels over stdout.
   (such as the Prepare panel) are not listed.
 - `get_crate_tracks` — the tracks of one crate, in the crate's own order. Only crates in the
   Serato Library space can be given.
+- `audit_library` — diagnose the library. Every check runs by default and reports a count plus
+  up to ten example track ids: tracks with no BPM, with no key at all, with a key Serato itself
+  cannot display, marked stale, in no crate, streaming-only, duplicated, and with broken paths.
+  `duplicates` reports groups instead of loose ids, because which track duplicates which is the
+  part you can act on. `broken_paths` reads Serato's own missing flag by default; pass
+  `check_filesystem: true` to also look on disk, which is opt-in because a stat against a
+  disconnected drive blocks for seconds. A drive that is not mounted is reported as such rather
+  than having all its tracks declared missing.
 - `run_sql` — one read-only `SELECT` against a snapshot copy. Registered only
   with `--allow-raw-sql`, because it returns raw rows with no path redaction.
 
@@ -64,6 +72,9 @@ Read this before deciding what to trust.
   the current snapshot of each library is kept in `--cache-dir`; older ones
   are deleted as soon as a newer one is published.
 - **No write tools exist in this build.**
+- **Two audit checks rest on column semantics this project has not confirmed.** `stale` reads
+  `is_stale` and `streaming_only` reads `third_party_type`; both were zero on every track of the
+  reference library, so their counts are reported without any claim about what they mean.
 - **`rating`, the streaming flag and `analysis_flags` are passed through
   uninterpreted.** On the reference library `rating` was NULL on all 19
   tracks, and `analysis_flags` did not correlate with whether a track had been

@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { isSeratoError } from "../../src/errors.js";
 import { auditLibrary } from "../../src/tools/audit-library.js";
@@ -87,7 +88,10 @@ const byName = (checks: { name: string; count: number }[]) =>
   Object.fromEntries(checks.map((c) => [c.name, c.count]));
 
 describe("audit_library", () => {
-  it("runs every check that needs no filesystem, and carries a generation", async () => {
+  // Every check runs by default, broken_paths included: only its DISK PASS
+  // is opt-in (spec 4.1), and its database half is Serato's own missing
+  // flag, which costs nothing and is a real finding.
+  it("runs every check by default, and carries a generation", async () => {
     const r = await auditLibrary({}, ctx());
     if (isSeratoError(r)) throw new Error("unexpected error");
     expect(byName(r.checks)).toEqual({
@@ -98,9 +102,25 @@ describe("audit_library", () => {
       not_in_any_crate: 7,
       streaming_only: 1,
       duplicates: 1,
+      broken_paths: 0,
     });
-    expect(r.checks.some((c) => c.name === "broken_paths")).toBe(false);
     expect(r.generation).toMatch(/^[0-9a-f]{12}$/);
+  });
+
+  // Setting the flag and naming no check that has a filesystem pass used to
+  // do nothing at all, silently. Found by review 2026-09-14.
+  it("says so when check_filesystem selects nothing that uses it", async () => {
+    const r = await auditLibrary({ checks: ["stale"], check_filesystem: true }, ctx());
+    if (isSeratoError(r)) throw new Error("unexpected error");
+    expect(r.warnings).toEqual([
+      expect.objectContaining({ code: "filesystem_check_not_selected" }),
+    ]);
+  });
+
+  it("runs the same check once when it is named twice", async () => {
+    const r = await auditLibrary({ checks: ["stale", "stale"] }, ctx());
+    if (isSeratoError(r)) throw new Error("unexpected error");
+    expect(r.checks).toHaveLength(1);
   });
 
   // The criterion spec 4.1 wrote before P2 existed -- key_value < 0 -- counts
@@ -176,7 +196,93 @@ describe("audit_library", () => {
     });
   });
 
-  it("skips a location whose volume is not mounted, and says so", async () => {
+  // Spec 2.4: the Prepare panel is a type = 1 container too, so "in a crate"
+  // must not count it -- otherwise this number disagrees with list_crates,
+  // which excludes it.
+  it("does not count the Prepare panel as a crate", async () => {
+    const dir = tmp();
+    makeMasterFixture(dir, {
+      tracks: [
+        { externalId: 1, portableId: "Users/x/1.flac", name: "Only In Prepare" },
+        { externalId: 2, portableId: "Users/x/2.flac", name: "In A Real Crate" },
+      ],
+      crates: [{ id: 20, name: "Gigs 2026", trackExternalIds: [2] }],
+      prepareTrackExternalIds: [1],
+    });
+    const r = await auditLibrary(
+      { checks: ["not_in_any_crate"] },
+      { library: dir, roots: [], cacheDir: tmp() },
+    );
+    if (isSeratoError(r)) throw new Error("unexpected error");
+    // The track in Prepare is still "not in any crate"; the one in the real
+    // crate is not.
+    expect(r.checks[0].count).toBe(1);
+  });
+
+  // Spec 4.1 names two duplicate criteria. The tag criterion finds
+  // re-imports; this one catches the same recording filed under different
+  // tags, and the golden library yields zero of them, so only a fixture can
+  // cover it.
+  it("finds duplicates by file size and length, not only by tags", async () => {
+    const dir = tmp();
+    makeMasterFixture(dir, {
+      tracks: [
+        {
+          externalId: 1,
+          portableId: "Users/x/1.flac",
+          name: "Untitled",
+          artist: "A",
+          fileSize: 4242,
+          lengthMs: 321_000,
+        },
+        {
+          externalId: 2,
+          portableId: "Users/x/2.flac",
+          name: "Different Name",
+          artist: "B",
+          fileSize: 4242,
+          lengthMs: 321_000,
+        },
+      ],
+    });
+    const r = await auditLibrary(
+      { checks: ["duplicates"] },
+      { library: dir, roots: [], cacheDir: tmp() },
+    );
+    if (isSeratoError(r)) throw new Error("unexpected error");
+    expect(r.checks[0].count).toBe(1);
+    expect(r.checks[0].sample_groups?.[0]).toHaveLength(2);
+  });
+
+  // The module's headline schema-degradation claim: a check whose columns
+  // this schema lacks reports nothing, never a wrong number (spec 3.3).
+  it("omits a check this schema cannot run, and says why", async () => {
+    const dir = tmp();
+    const path = makeMasterFixture(dir, {
+      tracks: [{ externalId: 1, portableId: "Users/x/1.flac", name: "A" }],
+    });
+    const w = new DatabaseSync(path);
+    // The index on the column has to go first: SQLite refuses DROP COLUMN
+    // while an index references it.
+    w.exec("DROP INDEX IF EXISTS asset__stale");
+    w.exec("ALTER TABLE asset DROP COLUMN is_stale");
+    w.close();
+
+    const r = await auditLibrary(
+      { checks: ["stale", "missing_bpm"] },
+      { library: dir, roots: [], cacheDir: tmp() },
+    );
+    if (isSeratoError(r)) throw new Error("unexpected error");
+    expect(r.checks.map((c) => c.name)).toEqual(["missing_bpm"]);
+    expect(r.warnings).toEqual([
+      expect.objectContaining({
+        code: "check_unavailable",
+        details: { check: "stale", columns: ["is_stale"] },
+      }),
+    ]);
+  });
+
+  it("reports nothing rather than zero when no location could be checked", async () => {
     const dir = tmp();
     const volume = join(tmp(), "VolumeThatVanishes");
     makeMasterFixture(dir, {
@@ -193,7 +299,14 @@ describe("audit_library", () => {
     // Not counted as broken: an unmounted volume says nothing about whether
     // the file exists, and declaring the whole drive missing is the wrong
     // answer to give a DJ whose drive is simply unplugged.
-    expect(r.checks[0].count).toBe(0);
-    expect(r.warnings).toEqual([expect.objectContaining({ code: "location_disconnected" })]);
+    // Neither counted as broken nor reported as zero: an unmounted volume
+    // says nothing about whether the files exist, and "0 broken paths" is a
+    // positive claim. Declaring the whole drive missing would be worse still.
+    expect(r.checks).toEqual([]);
+    expect(r.warnings ?? []).toHaveLength(2);
+    expect((r.warnings ?? []).map((w) => w.code)).toEqual([
+      "location_disconnected",
+      "check_undetermined",
+    ]);
   });
 });

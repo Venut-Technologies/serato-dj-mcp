@@ -21,33 +21,60 @@ export type CheckResult = {
 type CheckContext = {
   db: DatabaseSync;
   assetColumns: Set<string>;
+  /** Checked the way session.ts checks before reading `connection`: a
+   *  renamed table must warn and degrade, not throw and be reported as a
+   *  broken snapshot (spec 3.3). */
+  tables: Set<string>;
   volumeRoots: Map<number, string>;
   /** Off by default, and for a reason: see FILESYSTEM_CHECKS below. */
   checkFilesystem: boolean;
   warnings: Warning[];
 };
 
+type CheckOutcome = { count: number; sample_ids?: number[]; sample_groups?: number[][] };
+
 type Check = {
   name: string;
   /** Columns without which this check cannot run at all. A schema missing
    *  one gets a warning and no result, never a wrong number (spec 3.3). */
   columns: readonly string[];
-  run: (ctx: CheckContext) => { count: number; sample_ids?: number[]; sample_groups?: number[][] };
+  /** Tables beyond `asset` that the check's SQL names. */
+  tables?: readonly string[];
+  /** A requirement the columns list cannot express, because that list is an
+   *  AND and some checks need an OR. Returns the missing columns, or []. */
+  requires?: (assetColumns: Set<string>) => string[];
+  /** undefined means "could not be determined": reported as a warning and
+   *  omitted from the report, never as a zero. */
+  run: (ctx: CheckContext) => CheckOutcome | undefined;
 };
 
-/** Checks that touch the filesystem. Excluded unless asked for. */
+/**
+ * Checks with a filesystem pass. The check itself still runs by default --
+ * spec 4.1 makes only the *disk access* opt-in, and the database half
+ * (Serato's own is_missing flag) is a free, real finding. Excluding the
+ * whole check made `check_filesystem: true` a silent no-op unless the caller
+ * also named broken_paths, the opposite of what its own description
+ * promised. Found by review 2026-09-14.
+ */
 export const FILESYSTEM_CHECKS: readonly string[] = ["broken_paths"];
 
+/**
+ * One predicate, two statements: the total and up to ten examples. They
+ * cannot disagree -- same WHERE, same immutable snapshot inside one
+ * readSession, deterministic order.
+ */
 function countAndSample(
   db: DatabaseSync,
   where: string,
   params: unknown[] = [],
+  withClause = "",
 ): { count: number; sample_ids: number[] } {
+  const prefix = withClause === "" ? "" : `${withClause} `;
   const { n } = db
-    .prepare(`SELECT count(*) AS n FROM asset a WHERE ${where}`)
+    .prepare(`${prefix}SELECT count(*) AS n FROM asset a WHERE ${where}`)
     .get(...(params as never[])) as { n: number };
   const ids = db
-    .prepare(`SELECT a.id FROM asset a WHERE ${where} ORDER BY a.id LIMIT ${MAX_SAMPLES}`)
+    .prepare(`${prefix}SELECT a.id FROM asset a WHERE ${where} ORDER BY a.id LIMIT ${MAX_SAMPLES}`)
     .all(...(params as never[])) as { id: number }[];
   return { count: n, sample_ids: ids.map((r) => r.id) };
 }
@@ -118,7 +145,7 @@ function duplicateGroups(ctx: CheckContext): number[][] {
  * warning and skipped entirely, rather than having every one of its tracks
  * declared missing -- which is what a naive pass would conclude.
  */
-function brokenPaths(ctx: CheckContext): { count: number; sample_ids: number[] } {
+function brokenPaths(ctx: CheckContext): CheckOutcome | undefined {
   const flagged = countAndSample(ctx.db, "a.is_missing <> 0");
   if (!ctx.checkFilesystem) return flagged;
 
@@ -126,39 +153,80 @@ function brokenPaths(ctx: CheckContext): { count: number; sample_ids: number[] }
     .prepare("SELECT id, location_id, portable_id FROM asset WHERE is_missing = 0")
     .all() as { id: number; location_id: number; portable_id: string }[];
 
-  const mounted = new Map<number, boolean>();
-  const isMounted = (locationId: number): boolean => {
-    const cached = mounted.get(locationId);
+  const checkable = new Map<number, boolean>();
+  const isCheckable = (locationId: number): boolean => {
+    const cached = checkable.get(locationId);
     if (cached !== undefined) return cached;
     const root = ctx.volumeRoots.get(locationId);
-    // An unknown root cannot be checked; treat it as unmounted so the
-    // warning path reports it instead of guessing.
-    const ok = root === undefined ? false : root === "/" || existsSync(root);
-    mounted.set(locationId, ok);
-    if (!ok) {
+    // Two different failures, and telling a DJ to plug in a drive that is
+    // already plugged in is the wrong one to report. A root we could not
+    // derive at all (an unparseable connection.database_uri, or no
+    // connection row -- see volumeRoots in ../read/session.ts) says nothing
+    // about whether the volume is mounted.
+    if (root === undefined) {
+      checkable.set(locationId, false);
+      ctx.warnings.push({
+        code: "location_root_unknown",
+        message: `no volume root could be derived for location ${locationId}, so its files were not checked on disk`,
+        details: { location_id: locationId, reason: "unparseable_database_uri" },
+      });
+      return false;
+    }
+    const mounted = root === "/" || existsSync(root);
+    checkable.set(locationId, mounted);
+    if (!mounted) {
       ctx.warnings.push({
         code: "location_disconnected",
-        message: `location ${locationId} is not mounted; its files were not checked on disk`,
-        details: { location_id: locationId, volume_root: root ?? null },
+        message: `location ${locationId} is not mounted, so its files were not checked on disk`,
+        details: { location_id: locationId, volume_root: root },
       });
     }
-    return ok;
+    return mounted;
   };
 
-  const missing: number[] = [...flagged.sample_ids];
-  let count = flagged.count;
+  const onDisk: number[] = [];
+  let gone = 0;
+  let checkedLocations = 0;
+  const seenLocations = new Set<number>();
   for (const row of rows) {
     // A streaming id is not a filesystem path and must never be turned into
     // one (spec 2.3).
     if (isStreamingPortableId(row.portable_id)) continue;
-    if (!isMounted(row.location_id)) continue;
+    if (!seenLocations.has(row.location_id)) {
+      seenLocations.add(row.location_id);
+      if (isCheckable(row.location_id)) checkedLocations += 1;
+    }
+    if (!isCheckable(row.location_id)) continue;
     const root = ctx.volumeRoots.get(row.location_id);
     if (root === undefined) continue;
     if (existsSync(portableIdToAbsolute(root, row.portable_id))) continue;
-    count += 1;
-    if (missing.length < MAX_SAMPLES) missing.push(row.id);
+    gone += 1;
+    if (onDisk.length < MAX_SAMPLES) onDisk.push(row.id);
   }
-  return { count, sample_ids: missing };
+
+  // Nothing could be checked: reporting 0 would be a positive claim -- "no
+  // broken paths" -- where the truth is "not checked". Same rule the
+  // check_unavailable path follows below.
+  if (seenLocations.size > 0 && checkedLocations === 0) return undefined;
+
+  // The count is the union spec 4.1 describes, but the two halves need
+  // different remedies -- relocate inside Serato, versus re-import -- so the
+  // split is stated rather than left for the caller to infer from one number.
+  ctx.warnings.push({
+    code: "broken_paths_breakdown",
+    message: `${flagged.count} flagged missing by Serato, ${gone} more absent from disk`,
+    details: {
+      flagged_by_serato: flagged.count,
+      absent_from_disk: gone,
+      locations_checked: checkedLocations,
+      locations_skipped: seenLocations.size - checkedLocations,
+    },
+  });
+
+  // Disk-discovered ids lead: they are what the caller opted in for, and
+  // filling the ten slots with already-flagged rows would say nothing new.
+  const sample = [...onDisk, ...flagged.sample_ids].slice(0, MAX_SAMPLES);
+  return { count: flagged.count + gone, sample_ids: sample };
 }
 
 /**
@@ -181,12 +249,20 @@ export const CHECKS: readonly Check[] = [
   {
     name: "missing_key",
     columns: ["id"],
+    tables: ["mcp_key"],
+    // The columns list is an AND and this requirement is an OR: the answer
+    // comes from mcp_key, which derive.ts fills from either key column. With
+    // neither, mcp_key is empty and this check would report EVERY track as
+    // keyless, with nothing to say it had no basis.
+    requires: (columns) =>
+      columns.has("key_value") || columns.has("key") ? [] : ["key_value", "key"],
     run: (ctx) =>
       countAndSample(ctx.db, "NOT EXISTS (SELECT 1 FROM mcp_key k WHERE k.asset_id = a.id)"),
   },
   {
     name: "key_unreadable_by_serato",
     columns: ["key_value"],
+    tables: ["mcp_key"],
     run: (ctx) =>
       countAndSample(
         ctx.db,
@@ -201,19 +277,30 @@ export const CHECKS: readonly Check[] = [
   {
     name: "not_in_any_crate",
     columns: ["id"],
+    tables: ["container_asset", "location_container", "container", "space"],
     // "Crate" here means what list_crates means by it: a type = 1 container
     // in the anchor space. Counting Serato's Prepare panel as a crate would
     // make this number disagree with what the crate tools show.
+    //
+    // MATERIALIZED, not a correlated NOT EXISTS. container_asset has no
+    // index on asset_id -- its three are on location_container_id,
+    // space_asset_id and external_container_asset_id -- so the correlated
+    // form scans that whole table once per track. Measured 2026-09-14 on a
+    // synthetic 50 118-track library with 15 015 memberships: 13.2 s per
+    // pass, and countAndSample runs the predicate twice, so 26 s of a
+    // synchronous server that cannot interrupt itself. The materialized CTE
+    // gives the identical answer in 41 ms.
     run: (ctx) =>
       countAndSample(
         ctx.db,
-        `NOT EXISTS (
-           SELECT 1 FROM container_asset ca
+        "a.id NOT IN (SELECT asset_id FROM crate_members)",
+        [ANCHOR_SPACE_NAME],
+        `WITH crate_members(asset_id) AS MATERIALIZED (
+           SELECT DISTINCT ca.asset_id FROM container_asset ca
              JOIN location_container lc ON lc.id = ca.location_container_id
              JOIN container c ON c.id = lc.container_id
              JOIN space s ON s.id = c.space_id
-            WHERE ca.asset_id = a.id AND c.type = 1 AND s.name = ? COLLATE NOCASE)`,
-        [ANCHOR_SPACE_NAME],
+            WHERE c.type = 1 AND s.name = ? COLLATE NOCASE)`,
       ),
   },
   {
@@ -239,31 +326,57 @@ export const CHECKS: readonly Check[] = [
 
 export const CHECK_NAMES: readonly string[] = CHECKS.map((c) => c.name);
 
-/** Everything that needs no filesystem access -- the default set. */
-export const DEFAULT_CHECK_NAMES: readonly string[] = CHECK_NAMES.filter(
-  (n) => !FILESYSTEM_CHECKS.includes(n),
-);
+/** Every check runs by default. Only broken_paths' DISK PASS is opt-in --
+ *  its database half costs nothing and finds real breakage (spec 4.1). */
+export const DEFAULT_CHECK_NAMES: readonly string[] = CHECK_NAMES;
 
 export function runChecks(
   names: readonly string[],
   ctx: CheckContext,
 ): { checks: CheckResult[]; warnings: Warning[] } {
   const results: CheckResult[] = [];
-  for (const name of names) {
+  const unavailable = (name: string, what: string, missing: string[]) => {
+    // A check that cannot run reports nothing rather than a wrong number,
+    // and says why (spec 3.3).
+    ctx.warnings.push({
+      code: "check_unavailable",
+      message: `this Serato schema cannot run the ${name} check`,
+      details: { check: name, [what]: missing },
+    });
+  };
+
+  // Deduplicated: the same name twice would run the same two queries twice
+  // and appear twice in a report the model reads as a list of distinct
+  // findings.
+  for (const name of [...new Set(names)]) {
     const check = CHECKS.find((c) => c.name === name);
     if (check === undefined) continue;
-    const absent = check.columns.filter((c) => !ctx.assetColumns.has(c));
-    if (absent.length > 0) {
-      // A check that cannot run reports nothing rather than a wrong number,
-      // and says why (spec 3.3).
+
+    const absentColumns = check.columns.filter((c) => !ctx.assetColumns.has(c));
+    const alsoRequired = check.requires?.(ctx.assetColumns) ?? [];
+    if (absentColumns.length > 0 || alsoRequired.length > 0) {
+      unavailable(name, "columns", [...absentColumns, ...alsoRequired]);
+      continue;
+    }
+    const absentTables = (check.tables ?? []).filter((t) => !ctx.tables.has(t));
+    if (absentTables.length > 0) {
+      unavailable(name, "tables", absentTables);
+      continue;
+    }
+
+    const outcome = check.run(ctx);
+    if (outcome === undefined) {
       ctx.warnings.push({
-        code: "check_unavailable",
-        message: `this Serato schema cannot run the ${name} check`,
-        details: { check: name, columns: absent },
+        code: "check_undetermined",
+        message: `the ${name} check could not be determined on this library`,
+        details: { check: name },
       });
       continue;
     }
-    results.push({ name, ...check.run(ctx) });
+    results.push({ name, ...outcome });
   }
-  return { checks: results, warnings: ctx.warnings };
+  // A copy, not the context's own array: every sibling module returns
+  // warnings for the caller to spread, and aliasing them makes the caller's
+  // list and this one the same object.
+  return { checks: results, warnings: [...ctx.warnings] };
 }
