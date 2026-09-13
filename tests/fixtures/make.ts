@@ -47,11 +47,27 @@ const RUNTIME_FUNCTION_TRIGGERS = [
 const LOCATION_UUID = Buffer.from("22222222222222222222222222222222", "hex");
 const LOCATION_ID = 2;
 
-/** The Serato Library space and its root container, as they are numbered in
- *  the real master.sqlite (measured 2026-09-06). Every crate hangs off this
- *  root, which is how Serato itself lays them out. */
+/**
+ * The container tree, numbered as the real master.sqlite numbers it
+ * (measured 2026-09-06). Getting this shape right in the fixture is not
+ * decoration: the whole-branch review of P2 found a defect -- Serato's
+ * Prepare panel listed as a user crate -- that no test could express,
+ * precisely because the fixture used to seed one space and no synthetic
+ * root. Spec 8 names that trap.
+ *
+ * The real tree is: container 0 is a synthetic root (parent NULL, space
+ * NULL), every space root hangs off it at parent_id 0, and user crates hang
+ * off their space root. The Prepare panel is a type = 1 container in its own
+ * space -- indistinguishable from a user crate by type alone, which is why
+ * spec 2.4 says filtering on type = 1 is insufficient, and why the fixture
+ * seeds one by default.
+ */
+const SYNTHETIC_ROOT_CONTAINER_ID = 0;
 const SPACE_ID = 5;
 const SPACE_ROOT_CONTAINER_ID = 5;
+const PREPARE_SPACE_ID = 4;
+const PREPARE_ROOT_CONTAINER_ID = 4;
+const PREPARE_CONTAINER_ID = 14;
 
 export type CrateSeed = {
   id: number;
@@ -83,12 +99,42 @@ export function makeMasterFixture(
     "/Users/x/Library/Application Support/Serato/Library/root.sqlite",
   );
 
-  db.prepare("INSERT INTO space (id, name) VALUES (?, ?)").run(SPACE_ID, "Serato Library");
   // container.list_order is NOT NULL and has no default -- including on the
-  // space root, which is easy to miss because Serato's own root looks empty.
-  db.prepare(
-    "INSERT INTO container (id, parent_id, name, type, space_id, list_order) VALUES (?, NULL, ?, 0, ?, 0)",
-  ).run(SPACE_ROOT_CONTAINER_ID, "Serato Library root", SPACE_ID);
+  // roots, which is easy to miss because Serato's own roots look empty.
+  const container = db.prepare(
+    "INSERT INTO container (id, parent_id, name, type, space_id, list_order) VALUES (?,?,?,?,?,?)",
+  );
+  const space = db.prepare("INSERT INTO space (id, name) VALUES (?, ?)");
+
+  // The synthetic root: the only type = 0 container with a NULL space_id.
+  // The crate query's recursion is anchored to exclude it, and that claim is
+  // untestable unless the fixture actually has one.
+  container.run(SYNTHETIC_ROOT_CONTAINER_ID, null, "root", 0, null, 0);
+
+  space.run(SPACE_ID, "Serato Library");
+  container.run(
+    SPACE_ROOT_CONTAINER_ID,
+    SYNTHETIC_ROOT_CONTAINER_ID,
+    "Serato Library root",
+    0,
+    SPACE_ID,
+    0,
+  );
+
+  // The Prepare panel, exactly as the real library carries it: a second
+  // space, its root, and a type = 1 container inside it. Nothing that reads
+  // crates may return this container -- it is Serato's staging panel, not a
+  // crate the DJ made.
+  space.run(PREPARE_SPACE_ID, "Prepare");
+  container.run(
+    PREPARE_ROOT_CONTAINER_ID,
+    SYNTHETIC_ROOT_CONTAINER_ID,
+    "Prepare root",
+    0,
+    PREPARE_SPACE_ID,
+    0,
+  );
+  container.run(PREPARE_CONTAINER_ID, PREPARE_ROOT_CONTAINER_ID, "Prepare", 1, PREPARE_SPACE_ID, 0);
 
   // external_id and location_id are the only NOT NULL columns of asset
   // without a default. Measured 2026-09-03.
@@ -161,9 +207,7 @@ export function makeMasterFixture(
   let locationContainerId = 0;
   let containerAssetId = 0;
   for (const crate of opts.crates ?? []) {
-    db.prepare(
-      "INSERT INTO container (id, parent_id, name, type, space_id, list_order) VALUES (?, ?, ?, 1, ?, ?)",
-    ).run(crate.id, SPACE_ROOT_CONTAINER_ID, crate.name, SPACE_ID, crate.id);
+    container.run(crate.id, SPACE_ROOT_CONTAINER_ID, crate.name, 1, SPACE_ID, crate.id);
 
     locationContainerId += 1;
     db.prepare(

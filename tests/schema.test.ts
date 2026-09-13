@@ -3,12 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
-import {
-  ASSET_FIELD_COLUMNS,
-  introspect,
-  KNOWN_USER_VERSIONS,
-  pickColumns,
-} from "../src/schema/index.js";
+import { introspect, KNOWN_USER_VERSIONS, pickColumns } from "../src/schema/index.js";
 import { makeMasterFixture } from "./fixtures/make.js";
 
 const open = (uv?: number) =>
@@ -97,19 +92,5 @@ describe("schema introspection", () => {
   // whatever order the available set happens to iterate in.
   it("orders picked columns by the candidate list, not by the available set", () => {
     expect(pickColumns(new Set(["c", "a"]), ["a", "b", "c"])).toEqual(["a", "c"]);
-  });
-
-  // length_sec was NULL on all 19 tracks of the demo library while length_ms
-  // was populated, so length_ms leads the candidate list.
-  it("prefers length_ms over length_sec for duration", () => {
-    expect(ASSET_FIELD_COLUMNS.length[0]).toBe("length_ms");
-  });
-
-  // Spec 2.6: key is the one field whose candidates are not alternatives.
-  // key_value alone covers 39 of 118 real tracks; the text column carries
-  // the other 75 in Open Key notation. A projection that stopped at the
-  // first candidate would silently lose them.
-  it("asks for both key columns, not just the authoritative one", () => {
-    expect(ASSET_FIELD_COLUMNS.key).toEqual(["key_value", "key"]);
   });
 });

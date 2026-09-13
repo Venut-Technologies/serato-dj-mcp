@@ -1,10 +1,8 @@
-import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { parseToolArgs } from "../args.js";
-import { resolveLibrary } from "../discovery/index.js";
 import { ok, type Warning, warningSchema } from "../envelope.js";
 import { err, isSeratoError, type SeratoError } from "../errors.js";
-import { takeSnapshot } from "../snapshot/index.js";
+import { type ReadCtx, readSession, schemaWarnings } from "../read/session.js";
 
 export const MAX_LIMIT = 500;
 export const DEFAULT_LIMIT = 200;
@@ -37,7 +35,9 @@ export const runSqlOutput = z.object({
 export const runSqlDescription =
   "Run one read-only SELECT (or WITH ... SELECT) against a snapshot copy of the Serato " +
   "library. It cannot alter the library: the snapshot is a copy and the connection is " +
-  "read-only. Paths are returned raw, without redaction. Registered only with --allow-raw-sql.";
+  "read-only. Paths are returned raw, without redaction. The snapshot also carries one table " +
+  "this server adds and Serato does not have: mcp_key(asset_id, camelot, number, letter, " +
+  "source), the tonality of each track. Registered only with --allow-raw-sql.";
 
 type ScanState =
   | "normal"
@@ -174,7 +174,7 @@ export function guardSql(sql: string): null | SeratoError {
  */
 export async function runSql(
   raw: unknown,
-  ctx: { library?: string; roots?: string[]; cacheDir: string },
+  ctx: ReadCtx,
 ): Promise<
   | ({ columns: string[]; rows: unknown[][]; truncated: boolean } & {
       generation?: string;
@@ -188,70 +188,49 @@ export async function runSql(
   const guarded = guardSql(args.sql);
   if (guarded) return guarded;
 
-  // Resolved here rather than handed in: one shared resolver for every tool
-  // (spec 3.1 keeps the tool layer clear of the server, so a resolution
-  // living in server.ts could only ever serve one caller). Ordered after
-  // guardSql so a refused statement costs no filesystem work.
-  const lib = resolveLibrary({ library: ctx.library, roots: ctx.roots });
-  if (isSeratoError(lib)) return lib;
-
-  const snap = await takeSnapshot(lib.masterPath, ctx.cacheDir);
-  if (isSeratoError(snap)) return snap;
-
-  const limit = args.limit ?? DEFAULT_LIMIT;
-  // Two `try` blocks, not this file's usual single try/finally (see
-  // src/snapshot/index.ts, src/discovery/index.ts,
-  // src/tools/list-libraries.ts): opening the snapshot and running the
-  // query fail with different, meaningful error codes (snapshot_failed vs.
-  // invalid_argument), and db is only ever assigned once the first try has
-  // already succeeded, so there is nothing to leak if it throws. Folding
-  // both into one try/catch would need an extra discriminant (e.g.
-  // inspecting the caught error) to tell the two failure kinds apart; the
-  // split gets that for free.
-  let db: DatabaseSync;
-  try {
-    db = new DatabaseSync(snap.path, { readOnly: true });
-  } catch (e) {
-    return err(
-      "snapshot_failed",
-      `cannot open snapshot: ${e instanceof Error ? e.message : String(e)}`,
-      { attempts: 1 },
-    );
-  }
-  try {
-    // node:sqlite is synchronous and offers no interrupt(), so a runaway
-    // query cannot be cancelled. busy_timeout plus the row cap is the whole
-    // defence; see the risk register in the spec.
-    db.exec("PRAGMA busy_timeout = 3000");
-    const stmt = db.prepare(args.sql);
-    // columns() reads the statement's schema, not its data, so it is correct
-    // even when the query matches zero rows -- unlike reading Object.keys()
-    // off a first row, which has nothing to read in that case.
-    const columns = stmt.columns().map((c) => c.name);
-    // iterate(), not all(): all() would materialise the entire result set
-    // (all matching rows, e.g. every track in a large library) just to have
-    // most of it thrown away right after. Stopping after limit + 1 rows --
-    // one past the cap -- is how truncated is known without ever reading,
-    // or holding in memory, anything beyond that.
-    const rows: unknown[][] = [];
-    let truncated = false;
-    for (const row of stmt.iterate(...((args.params ?? []) as never[]))) {
-      if (rows.length >= limit) {
-        truncated = true;
-        break;
+  // Through readSession like every other read tool, not by hand. It was by
+  // hand until 2026-09-13, and the whole-branch review of P2 pointed out
+  // what that costs: session.ts claims to be "the single read path", and
+  // this tool was the one that would silently miss any change to it -- a new
+  // pragma, a derived-table version check, a different snapshot policy --
+  // and the only one that never reported a schema_unknown warning. Six tools
+  // sharing four read paths is not one read path.
+  //
+  // The reason it stood apart -- wanting invalid_argument/query_error for a
+  // failed statement rather than readSession's outer snapshot_failed -- is
+  // satisfied inside the callback: the callback may return a SeratoError of
+  // its own, and the inner catch below gets there first.
+  return readSession(ctx, (handle) => {
+    const warnings = schemaWarnings(handle);
+    const limit = args.limit ?? DEFAULT_LIMIT;
+    try {
+      const stmt = handle.db.prepare(args.sql);
+      // columns() reads the statement's schema, not its data, so it is
+      // correct even when the query matches zero rows -- unlike reading
+      // Object.keys() off a first row, which has nothing to read in that
+      // case.
+      const columns = stmt.columns().map((c) => c.name);
+      // iterate(), not all(): all() would materialise the entire result set
+      // (all matching rows, e.g. every track in a large library) just to
+      // have most of it thrown away right after. Stopping after limit + 1
+      // rows -- one past the cap -- is how truncated is known without ever
+      // reading, or holding in memory, anything beyond that.
+      const rows: unknown[][] = [];
+      let truncated = false;
+      for (const row of stmt.iterate(...((args.params ?? []) as never[]))) {
+        if (rows.length >= limit) {
+          truncated = true;
+          break;
+        }
+        rows.push(columns.map((c) => row[c]));
       }
-      rows.push(columns.map((c) => row[c]));
+      return ok({ columns, rows, truncated }, handle.snapshot.generation, warnings);
+    } catch (e) {
+      return err(
+        "invalid_argument",
+        `query failed: ${e instanceof Error ? e.message : String(e)}`,
+        { reason: "query_error" },
+      );
     }
-    // Spec 4.0: every successful response carries generation except
-    // list_libraries. This is the only production call site of ok() with a
-    // real generation -- list_libraries always calls it with undefined --
-    // so this is also what first exercises that argument of ok() at all.
-    return ok({ columns, rows, truncated }, snap.generation);
-  } catch (e) {
-    return err("invalid_argument", `query failed: ${e instanceof Error ? e.message : String(e)}`, {
-      reason: "query_error",
-    });
-  } finally {
-    db.close();
-  }
+  });
 }

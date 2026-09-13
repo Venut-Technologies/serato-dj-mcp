@@ -216,8 +216,10 @@ describe("resolveCrate", () => {
       const anchor = wdb.prepare("SELECT space_id FROM container WHERE id = 20").get() as {
         space_id: number;
       };
+      // type = 0 and this space -- NOT parent_id IS NULL, which is the
+      // synthetic root's signature, not a space root's.
       const root = wdb
-        .prepare("SELECT id FROM container WHERE space_id = ? AND parent_id IS NULL AND type = 0")
+        .prepare("SELECT id FROM container WHERE space_id = ? AND type = 0")
         .get(anchor.space_id) as { id: number };
       // A sibling crate at the space root, to be the second "Gigs 2026"'s
       // parent -- a different parent from crate 20's (the root itself).
@@ -248,13 +250,13 @@ describe("resolveCrate", () => {
     ]);
   });
 
-  // Review 2026-09-13 (finding 2): verified against the live library, a
-  // plain `type = 1` filter returns Serato's own Prepare panel as if it were
-  // a user crate -- it is a type = 1 container, but it lives in a space of
-  // its own, not "Serato Library". This reproduces that shape without
-  // depending on the real library: a second space, its own root, and a
-  // type = 1 container under it. It must be invisible to both listCrates and
-  // resolveCrate, exactly the way Prepare now is.
+  // Review 2026-09-13 (finding 2): verified against the live library, a plain
+  // `type = 1` filter returns Serato's own Prepare panel as if it were a user
+  // crate -- it is a type = 1 container, but it lives in a space of its own,
+  // not "Serato Library". The fixture seeds that exact shape by default now
+  // (the synthetic root, both space roots, and the Prepare container), so
+  // this test needs no setup of its own: it just asserts the panel is
+  // invisible to both entry points.
   it("does not list or resolve a type = 1 container from a different space", () => {
     const dir = mkdtempSync(join(tmpdir(), "serato-crates-"));
     const path = makeMasterFixture(dir, {
@@ -262,29 +264,19 @@ describe("resolveCrate", () => {
       crates: [{ id: 20, name: "Gigs 2026", trackExternalIds: [] }],
     });
 
-    let otherId = 0;
-    withWritableDb(path, (wdb) => {
-      const spaceId = Number(
-        wdb.prepare("INSERT INTO space (name) VALUES (?)").run("Prepare").lastInsertRowid,
-      );
-      const rootId = Number(
-        wdb
-          .prepare(
-            "INSERT INTO container (parent_id, name, type, space_id, list_order) VALUES (NULL, ?, 0, ?, 0)",
-          )
-          .run("Prepare root", spaceId).lastInsertRowid,
-      );
-      otherId = Number(
-        wdb
-          .prepare(
-            "INSERT INTO container (parent_id, name, type, space_id, list_order) VALUES (?, ?, 1, ?, 0)",
-          )
-          .run(rootId, "Prepare", spaceId).lastInsertRowid,
-      );
-    });
-
     const db2 = new DatabaseSync(path, { readOnly: true });
-    expect(listCrates(db2, { limit: 100 }).some((c) => c.id === otherId)).toBe(false);
+    const prepare = db2
+      .prepare(
+        "SELECT c.id FROM container c JOIN space s ON s.id = c.space_id WHERE s.name = ? AND c.type = 1",
+      )
+      .get("Prepare") as { id: number } | undefined;
+    // If this is undefined the fixture stopped modelling the trap and the
+    // rest of the test would pass for the wrong reason.
+    expect(prepare).toBeDefined();
+    if (prepare === undefined) return;
+
+    expect(listCrates(db2, { limit: 100 }).some((c) => c.id === prepare.id)).toBe(false);
+    expect(listCrates(db2, { limit: 100 }).map((c) => c.name)).toEqual(["Gigs 2026"]);
 
     const r = resolveCrate(db2, { name: "Prepare" });
     expect(isSeratoError(r)).toBe(true);

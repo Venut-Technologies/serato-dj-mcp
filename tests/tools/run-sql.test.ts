@@ -200,6 +200,22 @@ describe("run_sql", () => {
     expect(r.generation).toBe(snap.generation);
   });
 
+  // run_sql goes through the shared read path now, so it reports the same
+  // schema_unknown warning every other read tool does. It never did while it
+  // resolved and opened the snapshot by hand.
+  it("warns about an unknown schema version, like every other read tool", async () => {
+    const dir = tmp();
+    makeMasterFixture(dir, { tracks: [], userVersion: 999 });
+    const r = await runSql({ sql: "SELECT 1" }, { library: dir, cacheDir: tmp() });
+    if (isSeratoError(r)) throw new Error("unexpected error");
+    expect(r.warnings).toEqual([
+      expect.objectContaining({
+        code: "schema_unknown",
+        details: expect.objectContaining({ user_version: 999 }),
+      }),
+    ]);
+  });
+
   it("reports column names even when the query matches zero rows", async () => {
     const r = await runSql(
       { sql: "SELECT external_id, name FROM asset WHERE external_id = 999" },
