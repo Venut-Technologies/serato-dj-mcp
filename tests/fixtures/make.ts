@@ -79,7 +79,16 @@ export type CrateSeed = {
 
 export function makeMasterFixture(
   dir: string,
-  opts: { tracks?: TrackSeed[]; crates?: CrateSeed[]; userVersion?: number } = {},
+  opts: {
+    tracks?: TrackSeed[];
+    crates?: CrateSeed[];
+    userVersion?: number;
+    /** The location's database_uri, which is the ONLY source of a volume
+     *  root (location.path is NULL in every observed row, spec 2.3). Default
+     *  is the boot disk. Override it to model a library on an external
+     *  volume, mounted or not. */
+    connectionUri?: string;
+  } = {},
 ): string {
   const path = join(dir, "master.sqlite");
   const db = new DatabaseSync(path);
@@ -96,7 +105,7 @@ export function makeMasterFixture(
   );
   db.prepare("INSERT INTO connection (location_id, database_uri) VALUES (?, ?)").run(
     LOCATION_ID,
-    "/Users/x/Library/Application Support/Serato/Library/root.sqlite",
+    opts.connectionUri ?? "/Users/x/Library/Application Support/Serato/Library/root.sqlite",
   );
 
   // container.list_order is NOT NULL and has no default -- including on the

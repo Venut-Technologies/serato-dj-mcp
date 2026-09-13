@@ -9,6 +9,12 @@ import { z } from "zod";
 import type { Cli } from "./cli.js";
 import { toCallToolResult } from "./envelope.js";
 import {
+  auditLibrary,
+  auditLibraryDescription,
+  auditLibraryInput,
+  auditLibraryOutput,
+} from "./tools/audit-library.js";
+import {
   getCrateTracks,
   getCrateTracksDescription,
   getCrateTracksInput,
@@ -186,6 +192,24 @@ export function createServer(cli: Cli): Server {
         ),
     },
   ];
+
+  entries.push({
+    descriptor: describeTool(
+      "audit_library",
+      "Audit the Serato library",
+      auditLibraryDescription,
+      auditLibraryInput,
+      auditLibraryOutput,
+    ),
+    call: async (raw) =>
+      toCallToolResult(
+        await auditLibrary(raw, {
+          library: cli.library,
+          roots: cli.roots,
+          cacheDir: cli.cacheDir,
+        }),
+      ),
+  });
 
   // Registered only when asked. A tool that exists and refuses still costs
   // context on every tools/list and still invites the model to try it.
