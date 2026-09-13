@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
@@ -81,5 +82,79 @@ describe("derived key table", () => {
     if (isSeratoError(snap)) throw new Error("unexpected error");
     expect(existsSync(`${snap.path}-wal`)).toBe(false);
     expect(existsSync(`${snap.path}-shm`)).toBe(false);
+  });
+});
+
+/**
+ * The derived table is reused across runs by a file name that carries
+ * DERIVED_VERSION, so a change to the conversion rules in read/key.ts
+ * without a matching bump would keep serving keys computed by the old
+ * rules out of a cached snapshot. This digest is what makes that mistake
+ * loud: it covers every column of every row, so any change in what
+ * tonality() returns moves it.
+ *
+ * When it fails legitimately -- the rules changed on purpose -- bump
+ * DERIVED_VERSION in src/snapshot/derive.ts and update the digest here, in
+ * the same commit.
+ */
+describe("derived key table: golden contents", () => {
+  const goldenFixture = () =>
+    makeMasterFixture(tmp(), {
+      tracks: [
+        // One track per source tonality() can report, so the digest moves if
+        // any one of the four branches changes.
+        { externalId: 1, portableId: "Users/x/1.flac", name: "kv", keyValue: 21 },
+        { externalId: 2, portableId: "Users/x/2.flac", name: "open", keyValue: -1, keyText: "6m" },
+        { externalId: 3, portableId: "Users/x/3.flac", name: "cam", keyValue: -1, keyText: "9A" },
+        { externalId: 4, portableId: "Users/x/4.flac", name: "mus", keyValue: -1, keyText: "Ebm" },
+        { externalId: 5, portableId: "Users/x/5.flac", name: "none", keyValue: -1, keyText: "" },
+      ],
+    });
+
+  it("produces the same table for the same input", async () => {
+    const snap = await takeSnapshot(goldenFixture(), tmp());
+    if (isSeratoError(snap)) throw new Error("unexpected error");
+    const db = new DatabaseSync(snap.path, { readOnly: true });
+    const rows = db
+      .prepare("SELECT asset_id, camelot, number, letter, source FROM mcp_key ORDER BY asset_id")
+      .all();
+    db.close();
+
+    expect(rows).toEqual([
+      { asset_id: 1, camelot: "10B", number: 10, letter: "B", source: "key_value" },
+      { asset_id: 2, camelot: "1A", number: 1, letter: "A", source: "open_key" },
+      { asset_id: 3, camelot: "9A", number: 9, letter: "A", source: "camelot" },
+      { asset_id: 4, camelot: "2A", number: 2, letter: "A", source: "musical" },
+    ]);
+
+    const digest = createHash("sha256").update(JSON.stringify(rows)).digest("hex").slice(0, 16);
+    expect({ DERIVED_VERSION, digest }).toEqual({ DERIVED_VERSION: 1, digest: "770be6254b99aa15" });
+  });
+});
+
+/**
+ * With CREATE TABLE IF NOT EXISTS, a source that already carried a table of
+ * this name would keep ITS shape, the prepared INSERT would fail on unknown
+ * columns, and the throw would come back as snapshot_failed for every read
+ * of that library, forever. Owning the table is one line; the failure it
+ * prevents is total.
+ */
+describe("derived key table: a colliding table in the source", () => {
+  it("replaces a table of the same name instead of adopting it", async () => {
+    const live = makeMasterFixture(tmp(), {
+      tracks: [{ externalId: 1, portableId: "Users/x/a.flac", name: "A", keyValue: 21 }],
+    });
+    const seed = new DatabaseSync(live);
+    seed.exec("CREATE TABLE mcp_key (something_else TEXT)");
+    seed.prepare("INSERT INTO mcp_key (something_else) VALUES (?)").run("not ours");
+    seed.close();
+
+    const snap = await takeSnapshot(live, tmp());
+    if (isSeratoError(snap)) throw new Error(`unexpected error: ${snap.error.message}`);
+
+    const db = new DatabaseSync(snap.path, { readOnly: true });
+    const rows = db.prepare("SELECT asset_id, camelot, source FROM mcp_key").all();
+    db.close();
+    expect(rows).toEqual([{ asset_id: 1, camelot: "10B", source: "key_value" }]);
   });
 });

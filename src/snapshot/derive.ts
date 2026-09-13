@@ -1,8 +1,13 @@
 import type { DatabaseSync } from "node:sqlite";
-import { tonality } from "../read/key.js";
+import { KEY_COLUMNS, tonality } from "../read/key.js";
 
 /**
- * Bumped whenever the shape or the contents of the derived tables change.
+ * Bumped whenever the shape or the contents of the derived tables change --
+ * INCLUDING a change to the conversion rules in read/key.ts, which decide
+ * what goes in the table even though they live somewhere else. There is a
+ * pointer back to this constant there, and a golden test over mcp_key's
+ * contents in tests/snapshot-derive.test.ts that fails if the rules move
+ * without the version moving with them.
  * It travels in the snapshot's file name, so a snapshot published by an
  * older build is simply never matched by the reuse fast-path -- and the
  * eviction sweep, which matches on the `snap-<libraryKey>-` prefix, deletes
@@ -30,7 +35,15 @@ export function buildDerived(db: DatabaseSync): void {
   // sidecars before renaming the file into place. Verified 2026-09-07 that
   // the published file then had an empty mcp_key.
   db.exec("PRAGMA journal_mode = DELETE");
-  db.exec(`CREATE TABLE IF NOT EXISTS mcp_key (
+  // DROP then CREATE, not CREATE IF NOT EXISTS: with IF NOT EXISTS, a source
+  // that already had a table of this name would keep ITS shape, the prepared
+  // INSERT below would fail on unknown columns, and the throw would surface
+  // as snapshot_failed for every read of that library, forever -- the exact
+  // opposite of spec 3.3's "an unfamiliar schema warns and degrades". The
+  // mcp_ prefix makes a collision with a future Serato table unlikely, but
+  // this is a copy we own outright, so owning the table is free.
+  db.exec("DROP TABLE IF EXISTS mcp_key");
+  db.exec(`CREATE TABLE mcp_key (
     asset_id INTEGER PRIMARY KEY,
     camelot TEXT NOT NULL,
     number INTEGER NOT NULL,
@@ -45,8 +58,11 @@ export function buildDerived(db: DatabaseSync): void {
   // 3.3): an asset table without these columns is not an error, it just
   // yields no keys.
   if (!columns.has("id")) return;
-  const keyValue = columns.has("key_value") ? "key_value" : "NULL AS key_value";
-  const keyText = columns.has("key") ? "key" : "NULL AS key";
+  // KEY_COLUMNS, not two string literals: read/key.ts owns which columns
+  // hold a key, and this is the only place that reads them.
+  const [valueColumn, textColumn] = KEY_COLUMNS;
+  const keyValue = columns.has(valueColumn) ? valueColumn : `NULL AS ${valueColumn}`;
+  const keyText = columns.has(textColumn) ? textColumn : `NULL AS ${textColumn}`;
 
   const rows = db.prepare(`SELECT id, ${keyValue}, ${keyText} FROM asset`).all() as {
     id: number;
@@ -55,7 +71,7 @@ export function buildDerived(db: DatabaseSync): void {
   }[];
 
   const insert = db.prepare(
-    "INSERT OR REPLACE INTO mcp_key (asset_id, camelot, number, letter, source) VALUES (?,?,?,?,?)",
+    "INSERT INTO mcp_key (asset_id, camelot, number, letter, source) VALUES (?,?,?,?,?)",
   );
   db.exec("BEGIN");
   try {

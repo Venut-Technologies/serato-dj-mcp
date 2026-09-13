@@ -12,10 +12,19 @@
  * key_value and leaves the typed text alone. Harmonic matching is one of the
  * two leading scenarios for this server, so reading key_value alone would
  * run it on a third of the library.
+ *
+ * These rules decide the contents of the snapshot's derived mcp_key table,
+ * and that table is reused across runs by a name that carries
+ * DERIVED_VERSION (snapshot/derive.ts). **Change anything here that changes
+ * what tonality() returns, and DERIVED_VERSION has to be bumped in the same
+ * commit** -- otherwise a cached snapshot keeps serving keys computed by the
+ * old rules. The golden test in tests/snapshot-derive.test.ts is what makes
+ * forgetting it fail loudly rather than silently.
  */
 
 /** Both columns are read, in this order. key_value is authoritative when
- *  set; the text is a fallback, not a cross-check. */
+ *  set; the text is a fallback, not a cross-check. Consumed by
+ *  snapshot/derive.ts, which builds the snapshot's mcp_key table from them. */
 export const KEY_COLUMNS = ["key_value", "key"] as const;
 
 export type KeySource = "key_value" | "open_key" | "camelot" | "musical";
