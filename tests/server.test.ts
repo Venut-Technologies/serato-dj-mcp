@@ -99,21 +99,40 @@ async function callToolAfterListingOverTheWire(
 }
 
 describe("server", () => {
-  it("registers only list_libraries by default", () => {
+  it("registers only the read tools by default", () => {
     const s = createServer(cli());
-    expect(registeredToolNames(s)).toEqual(["list_libraries"]);
+    expect(registeredToolNames(s).sort()).toEqual([
+      "get_crate_tracks",
+      "get_tracks",
+      "list_crates",
+      "list_libraries",
+      "search_tracks",
+    ]);
   });
 
   // Not registering the tool is the most reliable form of "off": a tool that
   // exists and refuses can still be called and still costs context.
   it("registers run_sql only with --allow-raw-sql", () => {
     const s = createServer(cli({ allowRawSql: true }));
-    expect(registeredToolNames(s).sort()).toEqual(["list_libraries", "run_sql"]);
+    expect(registeredToolNames(s).sort()).toEqual([
+      "get_crate_tracks",
+      "get_tracks",
+      "list_crates",
+      "list_libraries",
+      "run_sql",
+      "search_tracks",
+    ]);
   });
 
   it("registers no write tools in P1 even with --allow-writes", () => {
     const s = createServer(cli({ allowWrites: true }));
-    expect(registeredToolNames(s)).toEqual(["list_libraries"]);
+    expect(registeredToolNames(s).sort()).toEqual([
+      "get_crate_tracks",
+      "get_tracks",
+      "list_crates",
+      "list_libraries",
+      "search_tracks",
+    ]);
   });
 
   // Guards against registeredToolNames() drifting from what the SDK actually

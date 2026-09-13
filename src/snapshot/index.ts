@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from
 import { join } from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
 import { err, type SeratoError } from "../errors.js";
+import { buildDerived, DERIVED_VERSION } from "./derive.js";
 
 const FULL_DISK_ACCESS_INSTRUCTIONS =
   "On macOS, grant Full Disk Access to the process running this server " +
@@ -148,7 +149,10 @@ export async function takeSnapshot(
       { attempts: 1 },
     );
   }
-  const out = join(cacheDir, `snap-${prefix}-${generation}.sqlite`);
+  // The derived version is part of the name, not of the content: a snapshot
+  // from an older build must not be reusable, and the eviction sweep below
+  // deletes it along with every other older generation of this library.
+  const out = join(cacheDir, `snap-${prefix}-${generation}-d${DERIVED_VERSION}.sqlite`);
 
   // Reuse: the source has not changed since this file was published, so its
   // content is current and the throttle window restarts from now.
@@ -211,6 +215,24 @@ export async function takeSnapshot(
     src.close();
   }
 
+  // Derived data goes in before the integrity check, so a snapshot is
+  // published only if it passed the check WITH our tables in it. Failure
+  // here is snapshot_failed like any other: errors are values (see
+  // errors.ts), and a half-derived file must never reach the final name.
+  try {
+    const writable = new DatabaseSync(tmp);
+    try {
+      buildDerived(writable);
+    } finally {
+      writable.close();
+    }
+  } catch (e) {
+    cleanupTmp();
+    return err("snapshot_failed", `derive failed: ${e instanceof Error ? e.message : String(e)}`, {
+      attempts: 1,
+    });
+  }
+
   let integrity: string;
   try {
     const dst = new DatabaseSync(tmp, { readOnly: true });
@@ -256,7 +278,7 @@ export async function takeSnapshot(
     });
   }
 
-  evictOlderEntries(cacheDir, prefix, `snap-${prefix}-${generation}.sqlite`);
+  evictOlderEntries(cacheDir, prefix, `snap-${prefix}-${generation}-d${DERIVED_VERSION}.sqlite`);
   return remember(livePath, { path: out, generation, takenAt: Date.now() });
 }
 

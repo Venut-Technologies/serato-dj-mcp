@@ -9,12 +9,36 @@ import { z } from "zod";
 import type { Cli } from "./cli.js";
 import { toCallToolResult } from "./envelope.js";
 import {
+  getCrateTracks,
+  getCrateTracksDescription,
+  getCrateTracksInput,
+  getCrateTracksOutput,
+} from "./tools/get-crate-tracks.js";
+import {
+  getTracks,
+  getTracksDescription,
+  getTracksInput,
+  getTracksOutput,
+} from "./tools/get-tracks.js";
+import {
+  listCratesDescription,
+  listCratesInput,
+  listCratesOutput,
+  listCratesTool,
+} from "./tools/list-crates.js";
+import {
   listLibraries,
   listLibrariesDescription,
   listLibrariesInput,
   listLibrariesOutput,
 } from "./tools/list-libraries.js";
 import { runSql, runSqlDescription, runSqlInput, runSqlOutput } from "./tools/run-sql.js";
+import {
+  searchTracks,
+  searchTracksDescription,
+  searchTracksInput,
+  searchTracksOutput,
+} from "./tools/search-tracks.js";
 
 const VERSION = "0.1.0";
 
@@ -96,6 +120,70 @@ export function createServer(cli: Cli): Server {
       ),
       call: async (raw) =>
         toCallToolResult(listLibraries(raw, { library: cli.library, roots: cli.roots })),
+    },
+    {
+      descriptor: describeTool(
+        "list_crates",
+        "List Serato crates",
+        listCratesDescription,
+        listCratesInput,
+        listCratesOutput,
+      ),
+      call: async (raw) =>
+        toCallToolResult(
+          await listCratesTool(raw, {
+            library: cli.library,
+            roots: cli.roots,
+            cacheDir: cli.cacheDir,
+          }),
+        ),
+    },
+    {
+      descriptor: describeTool(
+        "search_tracks",
+        "Search Serato tracks",
+        searchTracksDescription,
+        searchTracksInput,
+        searchTracksOutput,
+      ),
+      call: async (raw) =>
+        toCallToolResult(
+          await searchTracks(raw, {
+            library: cli.library,
+            roots: cli.roots,
+            cacheDir: cli.cacheDir,
+          }),
+        ),
+    },
+    {
+      descriptor: describeTool(
+        "get_tracks",
+        "Get Serato tracks by id",
+        getTracksDescription,
+        getTracksInput,
+        getTracksOutput,
+      ),
+      call: async (raw) =>
+        toCallToolResult(
+          await getTracks(raw, { library: cli.library, roots: cli.roots, cacheDir: cli.cacheDir }),
+        ),
+    },
+    {
+      descriptor: describeTool(
+        "get_crate_tracks",
+        "Get the tracks of a crate",
+        getCrateTracksDescription,
+        getCrateTracksInput,
+        getCrateTracksOutput,
+      ),
+      call: async (raw) =>
+        toCallToolResult(
+          await getCrateTracks(raw, {
+            library: cli.library,
+            roots: cli.roots,
+            cacheDir: cli.cacheDir,
+          }),
+        ),
     },
   ];
 

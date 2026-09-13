@@ -34,7 +34,10 @@ describe("envelope", () => {
   // clients support it and a 200-row page would otherwise be sent twice.
   it("puts a summary in content and the object in structuredContent", () => {
     const r = toCallToolResult({ tracks: [1, 2, 3], generation: "abc123" });
-    expect(r.isError).toBe(false);
+    // A plain `if`, not `expect(r.isError).toBe(false)`, because only
+    // control-flow narrowing removes the `isError: true` branch (with no
+    // structuredContent) from r's type for the assertions below.
+    if (r.isError) throw new Error("expected a non-error result");
     expect(r.structuredContent).toEqual({ tracks: [1, 2, 3], generation: "abc123" });
     expect(r.content[0].text).toContain("tracks: 3");
     expect(r.content[0].text).toContain("abc123");
