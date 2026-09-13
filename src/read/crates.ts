@@ -22,7 +22,7 @@ export type Crate = {
  * touch could still be listed and resolved for reads (review 2026-09-13,
  * finding 2).
  */
-const ANCHOR_SPACE_NAME = "Serato Library";
+export const ANCHOR_SPACE_NAME = "Serato Library";
 
 /**
  * Walks down from the anchor space's root, carrying the space name and

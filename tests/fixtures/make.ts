@@ -2,6 +2,9 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
+// The anchor space's name is a production constant, not a fixture detail:
+// the crate query filters on it, so a rename must not desync silently.
+import { ANCHOR_SPACE_NAME } from "../../src/read/crates.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -79,7 +82,21 @@ export type CrateSeed = {
 
 export function makeMasterFixture(
   dir: string,
-  opts: { tracks?: TrackSeed[]; crates?: CrateSeed[]; userVersion?: number } = {},
+  opts: {
+    tracks?: TrackSeed[];
+    crates?: CrateSeed[];
+    userVersion?: number;
+    /** The location's database_uri, which is the ONLY source of a volume
+     *  root (location.path is NULL in every observed row, spec 2.3). Default
+     *  is the boot disk. Override it to model a library on an external
+     *  volume, mounted or not. */
+    connectionUri?: string;
+    /** Tracks to put into Serato's Prepare panel (container 14, a type = 1
+     *  container in its own space). Nothing that reads crates may return
+     *  them as crate members -- spec 2.4 -- and that claim needs a fixture
+     *  that can express it. */
+    prepareTrackExternalIds?: number[];
+  } = {},
 ): string {
   const path = join(dir, "master.sqlite");
   const db = new DatabaseSync(path);
@@ -96,7 +113,7 @@ export function makeMasterFixture(
   );
   db.prepare("INSERT INTO connection (location_id, database_uri) VALUES (?, ?)").run(
     LOCATION_ID,
-    "/Users/x/Library/Application Support/Serato/Library/root.sqlite",
+    opts.connectionUri ?? "/Users/x/Library/Application Support/Serato/Library/root.sqlite",
   );
 
   // container.list_order is NOT NULL and has no default -- including on the
@@ -111,7 +128,7 @@ export function makeMasterFixture(
   // untestable unless the fixture actually has one.
   container.run(SYNTHETIC_ROOT_CONTAINER_ID, null, "root", 0, null, 0);
 
-  space.run(SPACE_ID, "Serato Library");
+  space.run(SPACE_ID, ANCHOR_SPACE_NAME);
   container.run(
     SPACE_ROOT_CONTAINER_ID,
     SYNTHETIC_ROOT_CONTAINER_ID,
@@ -206,6 +223,41 @@ export function makeMasterFixture(
 
   let locationContainerId = 0;
   let containerAssetId = 0;
+  const spaceAsset = db.prepare("INSERT INTO space_asset (id, asset_id, space_id) VALUES (?,?,?)");
+  const locationContainer = db.prepare(
+    "INSERT INTO location_container (id, container_id, location_id) VALUES (?, ?, ?)",
+  );
+  const containerAsset = db.prepare(
+    `INSERT INTO container_asset (id, asset_id, location_container_id, space_asset_id, list_order)
+     VALUES (?, ?, ?, ?, ?)`,
+  );
+
+  const prepareIds = opts.prepareTrackExternalIds ?? [];
+  if (prepareIds.length > 0) {
+    locationContainerId += 1;
+    locationContainer.run(locationContainerId, PREPARE_CONTAINER_ID, LOCATION_ID);
+    const prepareLocationContainerId = locationContainerId;
+    let order = 0;
+    for (const externalId of prepareIds) {
+      const assetId = assetIdByExternalId.get(externalId);
+      if (assetId === undefined) {
+        throw new Error(`the Prepare panel references unknown external_id ${externalId}`);
+      }
+      // Its own space_asset row: space_asset is UNIQUE(asset_id, space_id),
+      // so a track in two spaces has two.
+      spaceAssetId += 1;
+      spaceAsset.run(spaceAssetId, assetId, PREPARE_SPACE_ID);
+      containerAssetId += 1;
+      order += 1;
+      containerAsset.run(
+        containerAssetId,
+        assetId,
+        prepareLocationContainerId,
+        spaceAssetId,
+        order,
+      );
+    }
+  }
   for (const crate of opts.crates ?? []) {
     container.run(crate.id, SPACE_ROOT_CONTAINER_ID, crate.name, 1, SPACE_ID, crate.id);
 

@@ -102,6 +102,7 @@ describe("server", () => {
   it("registers only the read tools by default", () => {
     const s = createServer(cli());
     expect(registeredToolNames(s).sort()).toEqual([
+      "audit_library",
       "get_crate_tracks",
       "get_tracks",
       "list_crates",
@@ -115,6 +116,7 @@ describe("server", () => {
   it("registers run_sql only with --allow-raw-sql", () => {
     const s = createServer(cli({ allowRawSql: true }));
     expect(registeredToolNames(s).sort()).toEqual([
+      "audit_library",
       "get_crate_tracks",
       "get_tracks",
       "list_crates",
@@ -127,6 +129,7 @@ describe("server", () => {
   it("registers no write tools in P1 even with --allow-writes", () => {
     const s = createServer(cli({ allowWrites: true }));
     expect(registeredToolNames(s).sort()).toEqual([
+      "audit_library",
       "get_crate_tracks",
       "get_tracks",
       "list_crates",
