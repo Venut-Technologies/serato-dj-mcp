@@ -141,6 +141,35 @@ describe("search_tracks", () => {
     expect(second.next_cursor).toBeUndefined();
   });
 
+  // Carried over from task 9's review: the one existing test that combines q
+  // with a cursor (above) is refused before the query ever runs, so that
+  // branch never exercises a statement built from all three parameter
+  // sources at once. This one does: q contributes the relevance params,
+  // genre contributes a filter param, and the cursor contributes the keyset
+  // params -- in the order search_tracks binds them (select, filters,
+  // keyset, limit). A parameter-order regression in any one of those three
+  // modules would show up here as a wrong or empty second page.
+  it("pages a query that combines q, a filter, and a cursor", async () => {
+    const c = ctx();
+    // Of the four fixture tracks, q="rain" matches "Rain", "Rain Dance" (by
+    // title) and "Quiet" (by its artist "Ann Rainford"); genre="house"
+    // narrows that to the two House tracks, "Rain" and "Rain Dance". Default
+    // sort is relevance: "Rain" is an exact title match (tier 4), "Rain
+    // Dance" a title-prefix match (tier 3), so "Rain" leads.
+    const first = await searchTracks({ q: "rain", genre: "house", limit: 1 }, c);
+    if (isSeratoError(first)) throw new Error("unexpected error");
+    expect(titles(first)).toEqual(["Rain"]);
+    expect(first.next_cursor).toEqual(expect.any(String));
+
+    const second = await searchTracks(
+      { q: "rain", genre: "house", limit: 1, cursor: first.next_cursor },
+      c,
+    );
+    if (isSeratoError(second)) throw new Error("unexpected error");
+    expect(titles(second)).toEqual(["Rain Dance"]);
+    expect(second.next_cursor).toBeUndefined();
+  });
+
   // Spec 4.3: a cursor belongs to the query that produced it.
   it("refuses a cursor carried over to a different query", async () => {
     const c = ctx();
