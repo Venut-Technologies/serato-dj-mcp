@@ -39,8 +39,9 @@ export const listCratesOutput = z.object({
 });
 
 export const listCratesDescription =
-  "List the crates in the Serato library, with the space they live in, their display path and " +
-  "how many distinct tracks each holds. Smart crates and the internal space roots are not listed.";
+  "List the crates in the Serato Library space, with their display path and how many distinct " +
+  "tracks each holds. Only crates in that space are listed: smart crates, space roots and " +
+  "Serato's other internal spaces (such as the Prepare panel) are excluded.";
 
 export async function listCratesTool(
   raw: unknown,

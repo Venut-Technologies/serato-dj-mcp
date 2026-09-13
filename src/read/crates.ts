@@ -12,12 +12,27 @@ export type Crate = {
 };
 
 /**
- * Walks down from each space root, carrying the space name and building the
- * display path.
+ * The one space whose subtree holds user crates. A bare `type = 1` filter is
+ * not enough to identify them: Serato's own Prepare panel is also
+ * `type = 1`, but it lives in a space of its own (named "Prepare"), not this
+ * one -- verified against the live library (design spec 2.4), which returned
+ * `{"id":14,"name":"Prepare","space":"Prepare",...}` for a plain `type = 1`
+ * query. The write path anchors on this same space by the same name (spec
+ * 5.2); the read path has to agree, or a crate the write path would never
+ * touch could still be listed and resolved for reads (review 2026-09-13,
+ * finding 2).
+ */
+const ANCHOR_SPACE_NAME = "Serato Library";
+
+/**
+ * Walks down from the anchor space's root, carrying the space name and
+ * building the display path.
  *
  * The synthetic root (id 0) is excluded by the JOIN: it is the only
  * type = 0 container with space_id NULL. Without that exclusion every crate
- * would appear twice -- once under its space and once under "root".
+ * would appear twice -- once under its space and once under "root". Every
+ * other space -- the internal ones Serato keeps alongside the user's, the
+ * Prepare panel among them -- is excluded by the `s.name` filter below.
  *
  * track_count is COUNT(DISTINCT ca.asset_id): location_container is 1:N, so
  * a plain COUNT(*) multiplies a crate's tracks by the number of locations
@@ -28,7 +43,7 @@ const CRATE_QUERY = `
 WITH RECURSIVE chain(id, name, parent_id, type, space, path) AS (
   SELECT c.id, c.name, c.parent_id, c.type, s.name, s.name
     FROM container c JOIN space s ON s.id = c.space_id
-   WHERE c.type = 0
+   WHERE c.type = 0 AND s.name = ? COLLATE NOCASE
   UNION ALL
   SELECT c.id, c.name, c.parent_id, c.type, chain.space, chain.path || ' / ' || c.name
     FROM container c JOIN chain ON c.parent_id = chain.id
@@ -45,7 +60,7 @@ export function listCrates(db: DatabaseSync, opts: { limit: number; afterId?: nu
   const after = opts.afterId ?? -1;
   return db
     .prepare(`${CRATE_QUERY} AND chain.id > ? ORDER BY chain.id LIMIT ?`)
-    .all(after, opts.limit) as Crate[];
+    .all(ANCHOR_SPACE_NAME, after, opts.limit) as Crate[];
 }
 
 /**
@@ -58,7 +73,7 @@ export function resolveCrate(
   db: DatabaseSync,
   ref: { id?: number; name?: string },
 ): Crate | SeratoError {
-  const all = db.prepare(`${CRATE_QUERY} ORDER BY chain.id`).all() as Crate[];
+  const all = db.prepare(`${CRATE_QUERY} ORDER BY chain.id`).all(ANCHOR_SPACE_NAME) as Crate[];
 
   if (ref.id !== undefined) {
     const hit = all.find((c) => c.id === ref.id);

@@ -33,9 +33,11 @@ protocol travels over stdout.
   opaque cursor; the default page is 25 tracks and nine fields.
 - `get_tracks` — fetch tracks by the ids `search_tracks` returned. Unknown ids come back in
   `missing` rather than being dropped.
-- `list_crates` — the crates, with the space they belong to, their display path and how many
-  distinct tracks each holds. Smart crates and internal space roots are not listed.
-- `get_crate_tracks` — the tracks of one crate, in the crate's own order.
+- `list_crates` — the crates in the Serato Library space, with their display path and how many
+  distinct tracks each holds. Smart crates, space roots and Serato's other internal spaces
+  (such as the Prepare panel) are not listed.
+- `get_crate_tracks` — the tracks of one crate, in the crate's own order. Only crates in the
+  Serato Library space can be given.
 - `run_sql` — one read-only `SELECT` against a snapshot copy. Registered only
   with `--allow-raw-sql`, because it returns raw rows with no path redaction.
 

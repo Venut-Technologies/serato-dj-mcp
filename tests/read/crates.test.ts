@@ -196,10 +196,14 @@ describe("resolveCrate", () => {
 
   // Review 2026-09-07 (finding 1): ambiguous_crate is one of the three
   // contract reason strings this task was scoped to deliver, and it had no
-  // coverage. Two spaces can each hold a crate of the same name -- the
-  // container UNIQUE constraint is (parent_id, name, type), and these two
-  // crates have different parents (different space roots), so both inserts
-  // succeed.
+  // coverage. Originally seeded with the two candidates in different spaces;
+  // review 2026-09-13 (finding 2) restricted listing/resolving to the
+  // "Serato Library" space alone, so a same-named crate in a second space is
+  // no longer visible at all and cannot produce an ambiguity. Re-seeded to
+  // collide the way it still can: two crates named "Gigs 2026" in the SAME
+  // space, under different parents -- the container UNIQUE constraint is
+  // (parent_id, name COLLATE NOCASE, type), so same parent would collide at
+  // the INSERT, but different parents let both rows exist.
   it("refuses an ambiguous name and names both candidates by id and path", () => {
     const dir = mkdtempSync(join(tmpdir(), "serato-crates-"));
     const path = makeMasterFixture(dir, {
@@ -209,22 +213,27 @@ describe("resolveCrate", () => {
 
     let secondCrateId = 0;
     withWritableDb(path, (wdb) => {
-      const spaceId = Number(
-        wdb.prepare("INSERT INTO space (name) VALUES (?)").run("Other Library").lastInsertRowid,
-      );
-      const rootId = Number(
+      const anchor = wdb.prepare("SELECT space_id FROM container WHERE id = 20").get() as {
+        space_id: number;
+      };
+      const root = wdb
+        .prepare("SELECT id FROM container WHERE space_id = ? AND parent_id IS NULL AND type = 0")
+        .get(anchor.space_id) as { id: number };
+      // A sibling crate at the space root, to be the second "Gigs 2026"'s
+      // parent -- a different parent from crate 20's (the root itself).
+      const siblingId = Number(
         wdb
           .prepare(
-            "INSERT INTO container (parent_id, name, type, space_id, list_order) VALUES (NULL, ?, 0, ?, 0)",
+            "INSERT INTO container (parent_id, name, type, space_id, list_order) VALUES (?, ?, 1, ?, 0)",
           )
-          .run("Other Library root", spaceId).lastInsertRowid,
+          .run(root.id, "Sets", anchor.space_id).lastInsertRowid,
       );
       secondCrateId = Number(
         wdb
           .prepare(
             "INSERT INTO container (parent_id, name, type, space_id, list_order) VALUES (?, ?, 1, ?, 0)",
           )
-          .run(rootId, "Gigs 2026", spaceId).lastInsertRowid,
+          .run(siblingId, "Gigs 2026", anchor.space_id).lastInsertRowid,
       );
     });
 
@@ -235,7 +244,52 @@ describe("resolveCrate", () => {
     expect(r.error.details?.reason).toBe("ambiguous_crate");
     expect(r.error.details?.candidates).toEqual([
       { id: 20, path: "Serato Library / Gigs 2026" },
-      { id: secondCrateId, path: "Other Library / Gigs 2026" },
+      { id: secondCrateId, path: "Serato Library / Sets / Gigs 2026" },
     ]);
+  });
+
+  // Review 2026-09-13 (finding 2): verified against the live library, a
+  // plain `type = 1` filter returns Serato's own Prepare panel as if it were
+  // a user crate -- it is a type = 1 container, but it lives in a space of
+  // its own, not "Serato Library". This reproduces that shape without
+  // depending on the real library: a second space, its own root, and a
+  // type = 1 container under it. It must be invisible to both listCrates and
+  // resolveCrate, exactly the way Prepare now is.
+  it("does not list or resolve a type = 1 container from a different space", () => {
+    const dir = mkdtempSync(join(tmpdir(), "serato-crates-"));
+    const path = makeMasterFixture(dir, {
+      tracks: [],
+      crates: [{ id: 20, name: "Gigs 2026", trackExternalIds: [] }],
+    });
+
+    let otherId = 0;
+    withWritableDb(path, (wdb) => {
+      const spaceId = Number(
+        wdb.prepare("INSERT INTO space (name) VALUES (?)").run("Prepare").lastInsertRowid,
+      );
+      const rootId = Number(
+        wdb
+          .prepare(
+            "INSERT INTO container (parent_id, name, type, space_id, list_order) VALUES (NULL, ?, 0, ?, 0)",
+          )
+          .run("Prepare root", spaceId).lastInsertRowid,
+      );
+      otherId = Number(
+        wdb
+          .prepare(
+            "INSERT INTO container (parent_id, name, type, space_id, list_order) VALUES (?, ?, 1, ?, 0)",
+          )
+          .run(rootId, "Prepare", spaceId).lastInsertRowid,
+      );
+    });
+
+    const db2 = new DatabaseSync(path, { readOnly: true });
+    expect(listCrates(db2, { limit: 100 }).some((c) => c.id === otherId)).toBe(false);
+
+    const r = resolveCrate(db2, { name: "Prepare" });
+    expect(isSeratoError(r)).toBe(true);
+    if (!isSeratoError(r)) return;
+    expect(r.error.details?.reason).toBe("unknown_crate");
+    expect(r.error.details?.available).not.toContain("Prepare");
   });
 });
