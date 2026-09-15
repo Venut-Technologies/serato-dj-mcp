@@ -11,7 +11,12 @@ import {
   rootGeneration,
 } from "../../src/apply/root.js";
 import { isSeratoError } from "../../src/errors.js";
-import { makeRootFixture, ROOT_ANCHOR_CONTAINER_ID, ROOT_SPACE_ID } from "../fixtures/make.js";
+import {
+  makeRootFixture,
+  ROOT_ANCHOR_CONTAINER_ID,
+  ROOT_BASE_REVISION,
+  ROOT_SPACE_ID,
+} from "../fixtures/make.js";
 
 const tmp = () => mkdtempSync(join(tmpdir(), "serato-rootq-"));
 
@@ -51,6 +56,27 @@ describe("findAnchors", () => {
     db.exec("UPDATE space SET name = 'Renamed' WHERE name = 'Serato Library'");
     const r = findAnchors(db);
     expect(isSeratoError(r) && r.error.details?.reason).toBe("anchor_space_missing");
+    db.close();
+  });
+
+  it("refuses as ambiguous when the space has two root containers", () => {
+    const { db } = rootDb();
+    db.prepare(
+      "INSERT INTO container (revision, parent_id, name, type, list_order, space_id) VALUES (?, ?, ?, 0, ?, ?)",
+    ).run(ROOT_BASE_REVISION, 0, "Extra Serato Library root", 99, ROOT_SPACE_ID);
+    const r = findAnchors(db);
+    expect(isSeratoError(r) && r.error.details?.reason).toBe("anchor_container_ambiguous");
+    expect(isSeratoError(r) && r.error.details?.found).toBe(2);
+    db.close();
+  });
+
+  it("refuses as ambiguous when the space has zero root containers", () => {
+    const { db } = rootDb();
+    db.exec("PRAGMA foreign_keys = OFF");
+    db.prepare("UPDATE container SET parent_id = NULL WHERE id = ?").run(ROOT_ANCHOR_CONTAINER_ID);
+    const r = findAnchors(db);
+    expect(isSeratoError(r) && r.error.details?.reason).toBe("anchor_container_ambiguous");
+    expect(isSeratoError(r) && r.error.details?.found).toBe(0);
     db.close();
   });
 });
@@ -106,6 +132,21 @@ describe("checkRootSchema", () => {
     expect(checkRootSchema(db)).toBeNull();
     db.exec("PRAGMA foreign_keys = OFF");
     db.exec("DROP TABLE container_asset");
+    const r = checkRootSchema(db);
+    expect(isSeratoError(r) && r.error.details?.reason).toBe("root_schema_unsupported");
+    db.close();
+  });
+
+  // `serato` itself present but missing its `revision` column: every required
+  // table exists, so only the column check catches this. Recreating it as a
+  // bare table did not need any trigger dropped first -- DROP TABLE takes its
+  // own triggers (ON serato) with it; nothing else references the table by
+  // name in a way that blocks the drop.
+  it("refuses when serato exists but has no revision column", () => {
+    const { db } = rootDb();
+    db.exec("PRAGMA foreign_keys = OFF");
+    db.exec("DROP TABLE serato");
+    db.exec("CREATE TABLE serato (other INTEGER)");
     const r = checkRootSchema(db);
     expect(isSeratoError(r) && r.error.details?.reason).toBe("root_schema_unsupported");
     db.close();

@@ -23,7 +23,10 @@ export const systemProbe: ProcessProbe = {
   },
   nameOf(pid) {
     try {
-      const out = execFileSync("ps", ["-p", String(pid), "-o", "comm="], { encoding: "utf8" });
+      const out = execFileSync("ps", ["-p", String(pid), "-o", "comm="], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      });
       return out.trim() === "" ? null : out.trim();
     } catch {
       return null;

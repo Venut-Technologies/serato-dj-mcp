@@ -5,6 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { rootGeneration } from "../../src/apply/root.js";
 import type { ProcessProbe } from "../../src/apply/serato.js";
+import { isSqliteBusy } from "../../src/apply/sqlite.js";
 import { type ApplyInput, applyCrates, verifyCommitted } from "../../src/apply/transaction.js";
 import { isSeratoError } from "../../src/errors.js";
 import type { StagedCrate } from "../../src/stage/store.js";
@@ -290,7 +291,7 @@ describe("applyCrates", () => {
           other.exec("ROLLBACK");
           lockedDuringCheck = false;
         } catch (e) {
-          lockedDuringCheck = (((e as { errcode?: number }).errcode ?? -1) & 0xff) === 5;
+          lockedDuringCheck = isSqliteBusy(e);
         } finally {
           other.close();
         }

@@ -13,6 +13,7 @@ import {
   rootGeneration,
 } from "./root.js";
 import { checkSeratoClosed, type ProcessProbe, systemProbe } from "./serato.js";
+import { isSqliteBusy } from "./sqlite.js";
 
 /** Spec 5.4: SQLITE_BUSY becomes busy with retry_after_ms equal to this. */
 export const BUSY_TIMEOUT_MS = 3000;
@@ -21,10 +22,6 @@ export const BUSY_TIMEOUT_MS = 3000;
  *  The primary code 19 is shared with NOT NULL (1299), CHECK and FK, so only
  *  the extended code identifies a name collision (spec 5.4). */
 const SQLITE_CONSTRAINT_UNIQUE = 2067;
-
-/** SQLITE_BUSY is primary result code 5; its extended variants (e.g.
- *  BUSY_RECOVERY, BUSY_SNAPSHOT) mask down to it in the low byte. */
-const isBusy = (e: unknown): boolean => (((e as { errcode?: number }).errcode ?? -1) & 0xff) === 5;
 
 export type AppliedCrate = {
   staged_id: string;
@@ -88,7 +85,7 @@ function writeInTransaction(input: ApplyInput): ApplyOutcome | SeratoError {
     try {
       db.exec("BEGIN IMMEDIATE");
     } catch (e) {
-      if (isBusy(e)) {
+      if (isSqliteBusy(e)) {
         return err("busy", `root.sqlite is locked by another writer: ${String(e)}`, {
           retry_after_ms: BUSY_TIMEOUT_MS,
         });
@@ -315,7 +312,7 @@ function writeInTransaction(input: ApplyInput): ApplyOutcome | SeratoError {
         // SHARED, e.g. stage_crate on a second server instance -- so it is
         // contention, not failure, and gets a retry hint like any other.
         rollback();
-        if (isBusy(e)) {
+        if (isSqliteBusy(e)) {
           return err("busy", `COMMIT is blocked by another reader: ${String(e)}`, {
             retry_after_ms: BUSY_TIMEOUT_MS,
           });
@@ -329,7 +326,7 @@ function writeInTransaction(input: ApplyInput): ApplyOutcome | SeratoError {
     return { applied, revision, warnings };
   } catch (e) {
     rollback();
-    if (isBusy(e)) {
+    if (isSqliteBusy(e)) {
       // Defensive, not observed: measured with 200k container_asset rows
       // inserted while a reader held SHARED for 60s, a page-cache spill does
       // not surface as busy -- the transaction waited 60.4s under

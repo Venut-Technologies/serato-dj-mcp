@@ -1,5 +1,12 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -97,5 +104,26 @@ describe("backupLibrary", () => {
       await backupLibrary(lib, state, "lib000000001", new Date(Date.UTC(2026, 8, 14, 10, 0, i)));
     }
     expect(readdirSync(join(state, "backups", "other0000000"))).toHaveLength(1);
+  });
+
+  // If the system clock has moved back past the 10th-newest stamp, the new
+  // directory sorts first lexically. Retention must never delete the backup
+  // this very call just took, or a fail-closed write proceeds with none.
+  it("never deletes the backup it just took, even when the clock moved backward", async () => {
+    const lib = tmp();
+    makeLibraryFixture(lib, { tracks: [] });
+    const state = tmp();
+    const libraryBackups = join(state, "backups", "lib000000001");
+    for (let i = 0; i < MAX_BACKUPS; i += 1) {
+      const dir = join(libraryBackups, `20260914-1000${String(i).padStart(2, "0")}-000`);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "dummy"), "x");
+    }
+    const r = await backupLibrary(lib, state, "lib000000001", new Date(Date.UTC(2026, 0, 1)));
+    if (isSeratoError(r)) throw new Error(`unexpected error: ${r.error.message}`);
+    expect(existsSync(r.root) && existsSync(r.master)).toBe(true);
+    const kept = readdirSync(libraryBackups).sort();
+    expect(kept).toHaveLength(10);
+    expect(kept).toContain("20260101-000000-000");
   });
 });

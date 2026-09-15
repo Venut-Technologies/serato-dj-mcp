@@ -10,8 +10,10 @@ import { isSeratoError } from "../../src/errors.js";
 const tmp = () => mkdtempSync(join(tmpdir(), "serato-mutex-"));
 
 /** Another process holding the lock the way a second server instance would:
- *  its own SQLite connection, EXCLUSIVE, never released on its own. */
-async function holderProcess(stateDir: string): Promise<ChildProcess> {
+ *  its own SQLite connection, EXCLUSIVE, never released on its own. Spawns
+ *  only -- the caller awaits "held" itself, inside its own try/finally, so a
+ *  hang waiting for that line can never leave this child unkilled. */
+function holderProcess(stateDir: string): ChildProcess {
   const script = `
     const { mkdirSync } = require("node:fs");
     const { DatabaseSync } = require("node:sqlite");
@@ -21,11 +23,9 @@ async function holderProcess(stateDir: string): Promise<ChildProcess> {
     process.stdout.write("held\\n");
     setInterval(() => {}, 1000);
   `;
-  const child = spawn(process.execPath, ["--no-warnings", "-e", script, stateDir], {
+  return spawn(process.execPath, ["--no-warnings", "-e", script, stateDir], {
     stdio: ["ignore", "pipe", "ignore"],
   });
-  await once(child.stdout as NodeJS.ReadableStream, "data");
-  return child;
 }
 
 describe("acquireWriteLock", () => {
@@ -34,6 +34,17 @@ describe("acquireWriteLock", () => {
     const first = acquireWriteLock(dir, "lib000000001");
     if (isSeratoError(first)) throw new Error(`unexpected error: ${first.error.message}`);
     first.release();
+    const second = acquireWriteLock(dir, "lib000000001");
+    expect(isSeratoError(second)).toBe(false);
+    if (!isSeratoError(second)) second.release();
+  });
+
+  it("is idempotent: releasing twice does not throw, and the lock can be taken again", () => {
+    const dir = tmp();
+    const first = acquireWriteLock(dir, "lib000000001");
+    if (isSeratoError(first)) throw new Error(`unexpected error: ${first.error.message}`);
+    first.release();
+    expect(() => first.release()).not.toThrow();
     const second = acquireWriteLock(dir, "lib000000001");
     expect(isSeratoError(second)).toBe(false);
     if (!isSeratoError(second)) second.release();
@@ -57,8 +68,9 @@ describe("acquireWriteLock", () => {
   // its lock with it, so there is nothing stale to detect or take over.
   it("refuses while another process holds the lock, and is free once that process is killed", async () => {
     const dir = tmp();
-    const child = await holderProcess(dir);
+    const child = holderProcess(dir);
     try {
+      await once(child.stdout as NodeJS.ReadableStream, "data");
       const blocked = acquireWriteLock(dir, "lib000000001");
       expect(isSeratoError(blocked) && blocked.error.code).toBe("busy");
     } finally {

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { copyFileSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
 import { err, type SeratoError } from "../errors.js";
@@ -83,13 +83,27 @@ export async function backupLibrary(
 
   // Retention never fails a backup that already succeeded: an old directory
   // we cannot delete is a disk-space problem, not a reason to refuse a write.
+  //
+  // The directory names are UTC stamps sorted lexically, which assumes the
+  // clock moves forward. If it has moved back since an earlier backup, this
+  // call's own stamp can sort before some of the last ten and land in the
+  // "oldest" slice -- so this call's own directory is never a deletion
+  // candidate, no matter where it sorts.
+  const ownStamp = stamp(now);
   try {
     const all = readdirSync(libraryBackups).sort();
-    for (const old of all.slice(0, Math.max(0, all.length - MAX_BACKUPS))) {
+    const deletable = all.filter((name) => name !== ownStamp);
+    const excess = Math.max(0, all.length - MAX_BACKUPS);
+    for (const old of deletable.slice(0, excess)) {
       rmSync(join(libraryBackups, old), { recursive: true, force: true });
     }
   } catch {
     // see above
+  }
+  // Belt and braces: if the directory this call just wrote is gone regardless,
+  // a write must never proceed believing it has a backup it does not.
+  if (!existsSync(paths.root) || !existsSync(paths.master)) {
+    return failed("the new backup was removed during retention");
   }
   return paths;
 }

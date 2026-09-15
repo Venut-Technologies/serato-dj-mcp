@@ -4,6 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { acquireWriteLock } from "../apply/mutex.js";
 import { existingCrateId, findAnchors, resolveSpaceAssets, rootGeneration } from "../apply/root.js";
+import { isSqliteBusy } from "../apply/sqlite.js";
 import { parseToolArgs } from "../args.js";
 import { ok, type Warning, warningSchema } from "../envelope.js";
 import { err, isSeratoError, type SeratoError } from "../errors.js";
@@ -61,11 +62,6 @@ const REJECTION_MESSAGES: Record<string, string> = {
   library_disk_unknown:
     "cannot tell which location is this library's own disk: no connection row names root.sqlite",
 };
-
-/** SQLITE_BUSY is primary result code 5; node:sqlite reports it, or an
- *  extended variant of it, as errcode. Duplicated from apply/mutex.ts --
- *  Ruling 10 leaves consolidating the two for later. */
-const isSqliteBusy = (e: unknown) => (((e as { errcode?: number }).errcode ?? -1) & 0xff) === 5;
 
 /**
  * Everything that needs the live root.sqlite: anchors, the space-membership

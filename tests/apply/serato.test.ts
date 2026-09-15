@@ -83,6 +83,16 @@ describe("findLiveSerato", () => {
       findLiveSerato([{ owner_process_id: null, owner_process_name: "X" }], probe({})),
     ).toBeNull();
   });
+
+  // The outer `isAlive` gate must reject a dead pid before the name is ever
+  // re-probed -- distinct from the re-probe path for a live pid whose name
+  // cannot be read (tested above). A probe that lies and says the name is
+  // readable must not matter once isAlive has already said no.
+  it("never re-probes the name once the outer isAlive gate says the pid is dead", () => {
+    const rows = [{ owner_process_id: 500, owner_process_name: "Serato DJ Lite" }];
+    const deadButNameable: ProcessProbe = { isAlive: () => false, nameOf: () => "Serato DJ Lite" };
+    expect(findLiveSerato(rows, deadButNameable)).toBeNull();
+  });
 });
 
 describe("systemProbe", () => {

@@ -2,14 +2,11 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { err, type SeratoError } from "../errors.js";
+import { isSqliteBusy } from "./sqlite.js";
 
 /** Matches busy_timeout in the transaction: a caller told to retry after this
  *  long will find either the lock free or a fresh reason. */
 export const WRITE_LOCK_RETRY_MS = 3000;
-
-/** SQLITE_BUSY is primary result code 5; node:sqlite reports it, or an
- *  extended variant of it, as errcode. */
-const isBusy = (e: unknown) => (((e as { errcode?: number }).errcode ?? -1) & 0xff) === 5;
 
 /**
  * Exclusive per-library lock for the duration of apply_changes (spec 5.0,
@@ -39,18 +36,26 @@ export function acquireWriteLock(
     db.exec("BEGIN EXCLUSIVE");
   } catch (e) {
     db?.close();
-    if (isBusy(e)) {
-      return err("busy", "another serato-dj-mcp is applying changes to this library", {
-        retry_after_ms: WRITE_LOCK_RETRY_MS,
-      });
+    if (isSqliteBusy(e)) {
+      return err(
+        "busy",
+        "another serato-dj-mcp call is changing this library's staged or written crates; retry shortly",
+        { retry_after_ms: WRITE_LOCK_RETRY_MS },
+      );
     }
     return err("write_failed_not_committed", `cannot take the write lock: ${String(e)}`, {
       stage: "lock",
     });
   }
   const held = db;
+  let released = false;
   return {
     release() {
+      // Idempotent: a caller that releases in a finally after already
+      // releasing on an earlier path must not see close() throw "database is
+      // not open".
+      if (released) return;
+      released = true;
       // Closing ends the transaction and drops the lock; the ROLLBACK first
       // only makes that explicit. Nothing was ever written to this database.
       try {
