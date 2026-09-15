@@ -3,10 +3,11 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { acquireWriteLock } from "../../src/apply/mutex.js";
 import { resolveLibrary } from "../../src/discovery/index.js";
 import { isSeratoError } from "../../src/errors.js";
+import * as stageStore from "../../src/stage/store.js";
 import { loadStage, type Stage } from "../../src/stage/store.js";
 import { searchTracks } from "../../src/tools/search-tracks.js";
 import { stageCrate } from "../../src/tools/stage-crate.js";
@@ -182,22 +183,50 @@ describe("stage_crate", () => {
   });
 
   // Ruling 10 part A: two server instances must not be able to stage over
-  // each other's crate.
+  // each other's crate. Strengthened per the second review: a crate already
+  // staged before the lock is held must survive a busy attempt untouched.
   it("refuses to stage while another instance holds the write lock, and stages nothing", async () => {
     const { ctx, dir } = library();
+    const ids = await idsByTitle(ctx);
+    const staged = await stageCrate({ name: "A", track_ids: [ids.get("Rain")] }, ctx);
+    if (isSeratoError(staged)) throw new Error(`unexpected error: ${staged.error.message}`);
+
     const lib = resolveLibrary({ library: dir, roots: [] });
     if (isSeratoError(lib)) throw new Error("unexpected error");
     const held = acquireWriteLock(ctx.stateDir, lib.uuid);
     if (isSeratoError(held)) throw new Error("unexpected error");
     let r: Awaited<ReturnType<typeof stageCrate>>;
     try {
-      const ids = await idsByTitle(ctx);
-      r = await stageCrate({ name: "Gigs", track_ids: [ids.get("Rain")] }, ctx);
+      r = await stageCrate({ name: "B", track_ids: [ids.get("Storm")] }, ctx);
     } finally {
       held.release();
     }
     expect(isSeratoError(r) && r.error.code).toBe("busy");
-    expect(loadStage(ctx.stateDir, lib.uuid)).toBeNull();
+    const stage = loadStage(ctx.stateDir, lib.uuid) as Stage;
+    expect(stage.crates.map((c) => c.name)).toEqual(["A"]);
+  });
+
+  // Second review of Ruling 10: the try/catch that maps a thrown error from
+  // reading root.sqlite to busy/root_unreadable must not also wrap the
+  // write-lock section. A bug there (simulated by making saveStage throw
+  // instead of returning a SeratoError) must propagate to readSession's own
+  // handler, not come back mislabelled as a root.sqlite problem.
+  it("does not mislabel a bug in the stage section as a root.sqlite problem", async () => {
+    const { ctx } = library();
+    const ids = await idsByTitle(ctx);
+    const spy = vi.spyOn(stageStore, "saveStage").mockImplementation(() => {
+      throw new Error("simulated bug");
+    });
+    try {
+      const r = await stageCrate({ name: "Gigs", track_ids: [ids.get("Rain")] }, ctx);
+      expect(isSeratoError(r)).toBe(true);
+      if (isSeratoError(r)) {
+        expect(r.error.code).toBe("snapshot_failed");
+        expect(r.error.details?.reason).not.toBe("root_unreadable");
+      }
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("deduplicates repeated ids and says so", async () => {
