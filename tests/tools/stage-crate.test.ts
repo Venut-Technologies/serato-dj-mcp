@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -8,9 +8,9 @@ import { acquireWriteLock } from "../../src/apply/mutex.js";
 import { resolveLibrary } from "../../src/discovery/index.js";
 import { isSeratoError } from "../../src/errors.js";
 import * as stageStore from "../../src/stage/store.js";
-import { loadStage, type Stage } from "../../src/stage/store.js";
+import { loadStage, type Stage, type StagedCrate, saveStage } from "../../src/stage/store.js";
 import { searchTracks } from "../../src/tools/search-tracks.js";
-import { stageCrate } from "../../src/tools/stage-crate.js";
+import { MAX_STAGED_CRATES, stageCrate } from "../../src/tools/stage-crate.js";
 import { makeLibraryFixture } from "../fixtures/make.js";
 
 const tmp = () => mkdtempSync(join(tmpdir(), "serato-stage-tool-"));
@@ -287,5 +287,56 @@ describe("stage_crate", () => {
       ctx,
     );
     expect(isSeratoError(r) && r.error.code).toBe("invalid_argument");
+  });
+
+  // C1: root_generation_changed at apply must compare against when the stage
+  // was FIRST created, not the last crate appended to it -- otherwise it only
+  // ever notices root.sqlite moving since the most recent stage_crate call.
+  it("C1: keeps the stage's root_generation from the first crate staged, across later calls", async () => {
+    const { ctx, rootPath } = library();
+    const ids = await idsByTitle(ctx);
+    const a = await stageCrate({ name: "A", track_ids: [ids.get("Rain")] }, ctx);
+    if (isSeratoError(a)) throw new Error(`unexpected error: ${a.error.message}`);
+    const future = new Date(Date.now() + 60_000);
+    utimesSync(rootPath, future, future);
+    const b = await stageCrate({ name: "B", track_ids: [ids.get("Storm")] }, ctx);
+    if (isSeratoError(b)) throw new Error(`unexpected error: ${b.error.message}`);
+    // B's own response still reports the current root_generation.
+    expect(b.root_generation).not.toBe(a.root_generation);
+    const stage = loadStage(ctx.stateDir, a.library_id) as Stage;
+    expect(stage.root_generation).toBe(a.root_generation);
+  });
+
+  // C3: the number of staged crates is bounded so the detail preview_changes
+  // response is too.
+  it("C3: refuses to stage a crate once the cap is reached", async () => {
+    const { ctx, dir } = library();
+    const ids = await idsByTitle(ctx);
+    const rainId = ids.get("Rain") as number;
+    const lib = resolveLibrary({ library: dir, roots: [] });
+    if (isSeratoError(lib)) throw new Error("unexpected error");
+    const crates: StagedCrate[] = Array.from({ length: MAX_STAGED_CRATES }, (_, i) => ({
+      staged_id: `s${i}`,
+      name: `Crate ${i}`,
+      tracks: [{ track_id: rainId, portable_id: "Users/x/1.flac", title: "Rain", artist: "Kerri" }],
+      staged_at: "2026-09-14T10:00:00.000Z",
+    }));
+    const saved = saveStage(ctx.stateDir, {
+      schema_version: 1,
+      library_id: lib.uuid,
+      library_path: lib.path,
+      generation: "g",
+      root_generation: "r",
+      crates,
+    });
+    if (isSeratoError(saved)) throw new Error("unexpected error");
+
+    const r = await stageCrate({ name: "One More", track_ids: [rainId] }, ctx);
+    expect(isSeratoError(r) && r.error.code).toBe("write_refused");
+    if (isSeratoError(r)) {
+      expect(r.error.details?.reason).toBe("stage_full");
+      expect(r.error.details?.rejected_track_ids).toEqual([]);
+      expect(r.error.details?.limit).toBe(MAX_STAGED_CRATES);
+    }
   });
 });

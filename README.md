@@ -78,12 +78,27 @@ those itself.
 
 Before every write both databases are backed up under
 `<state-dir>/backups/<library-id>/<timestamp>/` (default state-dir:
-`~/Library/Application Support/serato-dj-mcp`), and the last ten are kept. **There is no undo
-tool.** To undo a write, quit Serato, delete `root.sqlite-journal` first if one is present (a hot
-journal left by a write that was interrupted mid-transaction; left in place, the next opener rolls
-it back into whatever you copy over `root.sqlite`), then copy the backed-up `root.sqlite` and
-`master.sqlite` back into the library folder and delete `master.sqlite-wal` and `master.sqlite-shm`
-there. Restoring them also rolls back anything Serato itself recorded in the library after that
+`~/Library/Application Support/serato-dj-mcp`), and the last ten are kept. A backup is taken on
+every `apply_changes` attempt that reaches the backup step, including attempts that are then
+refused inside the transaction (a name conflict, for example) — so "the last ten" means the last
+ten *attempts*, not ten successful writes, and the newest one may already contain the write you
+are trying to undo.
+
+**There is no undo tool.** To undo a specific write, first find the right backup: use the
+`backup_paths` returned by that `apply_changes` call, or open
+`<state-dir>/manifests/<library-id>.jsonl` and take the `backup_paths` of the line whose
+`"commit_state"` is `"committed"`. `<library-id>` is the `uuid` reported by `list_libraries`. Then,
+with that pair of paths in hand:
+
+1. Quit Serato.
+2. In the library folder, delete `root.sqlite-journal` if present, and delete
+   `master.sqlite-wal` and `master.sqlite-shm`.
+3. Copy the backed-up `root.sqlite` and `master.sqlite` into the library folder, replacing the
+   current ones.
+4. Delete `~/Music/_Serato_/Subcrates/<crate name>.crate` — Serato exported it after it synced
+   the crate, and copying the databases back does not remove it.
+
+Restoring these files also rolls back anything Serato itself recorded in the library after that
 backup was taken.
 
 Nested crates are not supported: a crate created this way inside another crate is deleted by

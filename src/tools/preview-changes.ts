@@ -67,14 +67,12 @@ export async function previewChanges(
   }));
   const trackTotal = crates.reduce((n, c) => n + c.tracks.length, 0);
   const staged = crates.map((c) => c.staged_at).sort();
-  // Decision 10: not bound to a snapshot. The generation the stage was built
-  // from is passed along when there is one, so the model can relate the two.
-  return ok(
-    {
-      pending,
-      summary: `${crates.length} crate${crates.length === 1 ? "" : "s"}, ${trackTotal} track${trackTotal === 1 ? "" : "s"}`,
-      staged_at: staged[0] ?? null,
-    },
-    stage?.generation,
-  );
+  // Decision 10: not bound to a snapshot, and the envelope's `generation`
+  // field is what every other tool uses for the live snapshot -- putting the
+  // stage's own generation there would be misleading, so it is left absent.
+  return ok({
+    pending,
+    summary: `${crates.length} crate${crates.length === 1 ? "" : "s"}, ${trackTotal} track${trackTotal === 1 ? "" : "s"}`,
+    staged_at: staged[0] ?? null,
+  });
 }

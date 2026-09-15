@@ -42,7 +42,10 @@ export const applyChangesDescription =
   "the call is refused while it runs. Both library databases are backed up first and the paths " +
   "are returned -- there is no undo tool, restoring means copying those files back with Serato " +
   "closed. Serato shows the new crates after it is started again. If any crate's name is taken " +
-  "or any staged track is gone from the library, nothing is written and the stage is kept.";
+  "or any staged track is gone from the library, nothing is written and the stage is kept. " +
+  "Before calling it with confirm: true, show the user preview_changes and get their explicit " +
+  "go-ahead. New crates do not appear in list_crates or the other read tools until Serato has " +
+  "been started and has synced.";
 
 export async function applyChanges(
   raw: unknown,
@@ -85,7 +88,10 @@ export async function applyChanges(
     if (existsSync(`${rootPath}-journal`)) {
       return err(
         "write_refused",
-        "root.sqlite has a hot journal: a transaction was left unfinished",
+        "root.sqlite-journal exists: either Serato is writing the library right now, or a " +
+          "write was interrupted. Quit Serato and retry; if it persists with Serato closed, " +
+          "start and quit Serato once so SQLite can roll it back. Do not delete the journal on " +
+          "its own.",
         {
           reason: "root_journal_present",
           rejected_track_ids: [],
@@ -130,10 +136,31 @@ export async function applyChanges(
       probe: ctx.probe,
     });
     if (isSeratoError(outcome)) {
-      // Known not committed: say so in the manifest. committed_unverified is
-      // the one failure that may well be in the file, so it keeps its intent.
-      if (outcome.error.code !== "write_failed_committed_unverified") {
-        markAborted(ctx.stateDir, lib.uuid, opId, outcome.error.code);
+      // committed_unverified is the one failure that may well be in the
+      // file, so it keeps its intent rather than being marked aborted --
+      // and the caller is told plainly not to retry over it.
+      if (outcome.error.code === "write_failed_committed_unverified") {
+        return {
+          error: {
+            ...outcome.error,
+            message:
+              `${outcome.error.message} -- the crates are most likely written. Do not retry ` +
+              "apply_changes; start Serato to check, and restore from backup_paths only if " +
+              "they are wrong.",
+          },
+        };
+      }
+      // Every other failure is known not committed: say so in the manifest.
+      const aborted = markAborted(ctx.stateDir, lib.uuid, opId, outcome.error.code);
+      if (isSeratoError(aborted)) {
+        // The original failure is still the real answer; the manifest just
+        // could not be told about it.
+        return {
+          error: {
+            ...outcome.error,
+            details: { ...outcome.error.details, manifest_not_updated: true },
+          },
+        };
       }
       return outcome;
     }
@@ -154,7 +181,19 @@ export async function applyChanges(
         details: { op_id: opId },
       });
     }
-    clearStage(ctx.stateDir, lib.uuid);
+    try {
+      clearStage(ctx.stateDir, lib.uuid);
+    } catch (e) {
+      // The write already succeeded and was verified: failing the call now
+      // would invite a retry that the name-conflict check then refuses.
+      // discard_changes can still clear the stage later.
+      warnings.push({
+        code: "stage_not_cleared",
+        message:
+          "the crates were written, but the stage could not be removed; discard_changes will clear it",
+        details: { error: e instanceof Error ? e.message : String(e) },
+      });
+    }
     return ok(
       { applied: outcome.applied, backup_paths: backupPaths, restart_required: true },
       undefined,

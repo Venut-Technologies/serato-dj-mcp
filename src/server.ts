@@ -78,6 +78,14 @@ const RO = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } 
  *  5.9) -- so destructiveHint stays false; none of them is idempotent. */
 const WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false } as const;
 
+/** discard_changes deletes the user's staged work -- the one write tool
+ *  whose effect is actually destructive. */
+const DESTRUCTIVE_WRITE = {
+  readOnlyHint: false,
+  destructiveHint: true,
+  idempotentHint: false,
+} as const;
+
 const names = new WeakMap<Server, string[]>();
 
 /** Test seam: there is no public registry to read, and asserting on which
@@ -306,7 +314,7 @@ export function createServer(cli: Cli): Server {
           discardChangesDescription,
           discardChangesInput,
           discardChangesOutput,
-          WRITE,
+          DESTRUCTIVE_WRITE,
         ),
         call: async (raw) => toCallToolResult(await discardChanges(raw, writeCtx)),
       },

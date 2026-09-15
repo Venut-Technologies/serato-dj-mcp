@@ -1,9 +1,17 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
-import { readManifest } from "../../src/apply/manifest.js";
+import { manifestPath, readManifest } from "../../src/apply/manifest.js";
 import { acquireWriteLock } from "../../src/apply/mutex.js";
 import type { ProcessProbe } from "../../src/apply/serato.js";
 import { isSeratoError } from "../../src/errors.js";
@@ -182,5 +190,136 @@ describe("apply_changes", () => {
     if (isSeratoError(r)) throw new Error("unexpected error");
     expect(r.applied.map((a) => a.name)).toEqual(["A", "B"]);
     expect(crates().map((c) => c.name)).toEqual(["A", "B"]);
+  });
+
+  // Inserts a lock row so checkSeratoClosed actually consults the probe
+  // instead of short-circuiting on an empty lock table.
+  function lockRow(masterPath: string) {
+    const m = new DatabaseSync(masterPath);
+    m.prepare(
+      "INSERT INTO lock (lock_policy, owner_process_id, owner_process_name) VALUES (1, 500, 'Serato DJ Lite')",
+    ).run();
+    m.close();
+  }
+
+  // A1: mutant removes `if (isSeratoError(intent)) return intent;`. Without
+  // it, a manifest failure is silently ignored and the crate gets written
+  // anyway, with nothing recording that it was ever attempted.
+  it("A1: reports write_failed_not_committed and writes nothing when the manifest cannot be created", async () => {
+    const { ctx, crates, libraryId } = await stagedLibrary();
+    writeFileSync(join(ctx.stateDir, "manifests"), "block");
+    const r = await applyChanges({ confirm: true }, ctx);
+    expect(isSeratoError(r) && r.error.code).toBe("write_failed_not_committed");
+    if (isSeratoError(r)) expect(r.error.details?.stage).toBe("manifest");
+    expect(crates()).toEqual([]);
+    const stage = loadStage(ctx.stateDir, libraryId);
+    if (stage === null || isSeratoError(stage)) throw new Error("the stage should have survived");
+    expect(stage.crates).toHaveLength(1);
+  });
+
+  // A2: mutant drops the `!== "write_failed_committed_unverified"` guard, so
+  // markAborted runs even for the one failure that may well be in the file --
+  // mislabelling it as aborted when it is really unknown.
+  it("A2: keeps the manifest entry as intent, not aborted, when the commit cannot be verified", async () => {
+    const { ctx, rootPath, libraryId } = await stagedLibrary();
+    const db = new DatabaseSync(rootPath);
+    db.exec(
+      "CREATE TRIGGER mangle AFTER INSERT ON container WHEN new.name = 'Gigs 2026' " +
+        "BEGIN UPDATE container SET name = 'Mangled' WHERE id = new.id; END",
+    );
+    db.close();
+    const r = await applyChanges({ confirm: true }, ctx);
+    expect(isSeratoError(r) && r.error.code).toBe("write_failed_committed_unverified");
+    const [entry] = readManifest(ctx.stateDir, libraryId);
+    expect(entry.commit_state).toBe("intent");
+    const stage = loadStage(ctx.stateDir, libraryId);
+    if (stage === null || isSeratoError(stage)) throw new Error("the stage should have survived");
+    expect(stage.crates).toHaveLength(1);
+  });
+
+  // A3: warnings from the transaction (here, root_generation_changed) must
+  // reach the caller on a successful outcome, not be dropped on the way to
+  // ok().
+  it("A3: passes root_generation_changed through to a successful outcome's warnings", async () => {
+    const { ctx, rootPath, crates } = await stagedLibrary();
+    const future = new Date(Date.now() + 60_000);
+    utimesSync(rootPath, future, future);
+    const r = await applyChanges({ confirm: true }, ctx);
+    if (isSeratoError(r)) throw new Error(`unexpected error: ${r.error.message}`);
+    expect(r.warnings).toEqual([expect.objectContaining({ code: "root_generation_changed" })]);
+    expect(crates().map((c) => c.name)).toEqual(["Gigs 2026"]);
+  });
+
+  // A4: markCommitted's own failure must still surface as a warning on an
+  // otherwise successful apply. The probe is consulted inside the
+  // transaction (spec 5.1.3's second check), by which point writeIntent has
+  // already created the manifest file -- corrupting it there, but not
+  // before, simulates the manifest becoming unwritable between intent and
+  // commit without ever failing writeIntent itself.
+  it("A4: emits manifest_not_updated and still clears the stage when markCommitted fails", async () => {
+    const { ctx, masterPath, libraryId, crates } = await stagedLibrary();
+    lockRow(masterPath);
+    const mPath = manifestPath(ctx.stateDir, libraryId);
+    const probe: ProcessProbe = {
+      isAlive: () => {
+        if (existsSync(mPath)) writeFileSync(mPath, "{not json");
+        return false;
+      },
+      nameOf: () => null,
+    };
+    const r = await applyChanges({ confirm: true }, { ...ctx, probe });
+    if (isSeratoError(r)) throw new Error(`unexpected error: ${r.error.message}`);
+    expect(r.warnings).toEqual([expect.objectContaining({ code: "manifest_not_updated" })]);
+    expect(crates().map((c) => c.name)).toEqual(["Gigs 2026"]);
+    expect(loadStage(ctx.stateDir, libraryId)).toBeNull();
+  });
+
+  // A5: clearStage (an rmSync) can throw after COMMIT. The write already
+  // succeeded and was verified, so that must come back as a warning, not a
+  // failure that invites a retry the name-conflict check would then refuse.
+  it("A5: reports stage_not_cleared but still reports success when the stage cannot be removed", async () => {
+    const { ctx, masterPath, crates } = await stagedLibrary();
+    lockRow(masterPath);
+    const stageDir = join(ctx.stateDir, "stage");
+    const probe: ProcessProbe = {
+      isAlive: () => {
+        chmodSync(stageDir, 0o555);
+        return false;
+      },
+      nameOf: () => null,
+    };
+    try {
+      const r = await applyChanges({ confirm: true }, { ...ctx, probe });
+      if (isSeratoError(r)) throw new Error(`unexpected error: ${r.error.message}`);
+      expect(r.warnings).toEqual([expect.objectContaining({ code: "stage_not_cleared" })]);
+      expect(crates().map((c) => c.name)).toEqual(["Gigs 2026"]);
+    } finally {
+      chmodSync(stageDir, 0o755);
+    }
+  });
+
+  // A6: if markAborted itself fails, the manifest could not be told about
+  // the abort -- but the original refusal (crate_name_conflict here) is
+  // still the real answer, now carrying that fact in its details.
+  it("A6: adds manifest_not_updated to a transaction refusal's details when markAborted also fails", async () => {
+    const { ctx, rootPath, masterPath, libraryId, crates } = await stagedLibrary();
+    const db = new DatabaseSync(rootPath);
+    db.prepare(
+      "INSERT INTO container (revision, parent_id, name, type, list_order, space_id) VALUES (10, ?, 'GIGS 2026', 1, 5, ?)",
+    ).run(ROOT_ANCHOR_CONTAINER_ID, ROOT_SPACE_ID);
+    db.close();
+    lockRow(masterPath);
+    const mPath = manifestPath(ctx.stateDir, libraryId);
+    const probe: ProcessProbe = {
+      isAlive: () => {
+        if (existsSync(mPath)) writeFileSync(mPath, "{not json");
+        return false;
+      },
+      nameOf: () => null,
+    };
+    const r = await applyChanges({ confirm: true }, { ...ctx, probe });
+    expect(isSeratoError(r) && r.error.code).toBe("crate_name_conflict");
+    if (isSeratoError(r)) expect(r.error.details?.manifest_not_updated).toBe(true);
+    expect(crates().map((c) => c.name)).toEqual(["GIGS 2026"]);
   });
 });

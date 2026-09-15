@@ -81,6 +81,20 @@ describe("write tools over the wire", () => {
       const { tools } = await client.listTools();
       const apply = tools.find((t) => t.name === "apply_changes");
       expect(apply?.annotations?.readOnlyHint).toBe(false);
+      // D1: stage_crate is additive (never destructive); discard_changes
+      // deletes the user's staged work, so it alone carries destructiveHint.
+      const stage = tools.find((t) => t.name === "stage_crate");
+      expect(stage?.annotations).toMatchObject({
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+      });
+      const discard = tools.find((t) => t.name === "discard_changes");
+      expect(discard?.annotations).toMatchObject({
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+      });
 
       const found = await client.callTool({
         name: "search_tracks",
@@ -110,8 +124,17 @@ describe("write tools over the wire", () => {
         true,
       );
 
+      // D4: what was applied leaves the stage -- preview_changes must show
+      // nothing pending afterwards.
+      const afterApply = await client.callTool({ name: "preview_changes", arguments: {} });
+      expect(afterApply.isError).toBeFalsy();
+      expect((afterApply.structuredContent as { pending: unknown[] }).pending).toEqual([]);
+
       const discarded = await client.callTool({ name: "discard_changes", arguments: {} });
       expect(discarded.isError).toBeFalsy();
+      expect((discarded.structuredContent as { discarded_ids: string[] }).discarded_ids).toEqual(
+        [],
+      );
     } finally {
       await client.close();
     }

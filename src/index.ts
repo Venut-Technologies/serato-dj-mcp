@@ -39,8 +39,11 @@ if ("version" in parsed) {
 }
 
 // Everything diagnostic goes to stderr: stdout carries the MCP protocol.
+const flags: string[] = [];
+if (parsed.allowWrites) flags.push("writes enabled");
+if (parsed.allowRawSql) flags.push("raw sql enabled");
 process.stderr.write(
-  `serato-dj-mcp ${VERSION} on stdio (read-only${parsed.allowRawSql ? ", raw sql enabled" : ""})\n`,
+  `serato-dj-mcp ${VERSION} on stdio (${flags.length > 0 ? flags.join(", ") : "read-only"})\n`,
 );
 
 await createServer(parsed).connect(new StdioServerTransport());

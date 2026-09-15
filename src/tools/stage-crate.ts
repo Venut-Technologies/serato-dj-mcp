@@ -17,6 +17,10 @@ import { loadStage, type Stage, type StagedCrate, saveStage } from "../stage/sto
  *  review found an unbounded `q` could stall the server for 36 seconds. */
 export const MAX_STAGE_TRACKS = 1000;
 
+/** The number of crates one instance can hold staged at a time -- otherwise
+ *  the detail preview_changes response is as unbounded as the stage is. */
+export const MAX_STAGED_CRATES = 50;
+
 export type WriteCtx = ReadCtx & { stateDir: string };
 
 export const stageCrateInput = z.object({
@@ -265,6 +269,13 @@ export async function stageCrate(
           staged_id: clash.staged_id,
         });
       }
+      if ((existing?.crates.length ?? 0) >= MAX_STAGED_CRATES) {
+        return err(
+          "write_refused",
+          `already ${MAX_STAGED_CRATES} crates are staged; apply or discard some before staging more`,
+          { reason: "stage_full", rejected_track_ids: [], limit: MAX_STAGED_CRATES },
+        );
+      }
 
       const crate: StagedCrate = {
         staged_id: randomUUID().slice(0, 8),
@@ -280,12 +291,17 @@ export async function stageCrate(
         }),
         staged_at: new Date().toISOString(),
       };
+      // C1: a stage's generation/root_generation describe when the stage was
+      // FIRST created, not the last crate appended to it -- otherwise
+      // root_generation_changed at apply only ever compares against the
+      // last crate staged, never the earlier ones. The response below still
+      // reports this call's own current root_generation.
       const stage: Stage = {
         schema_version: 1,
         library_id: handle.libraryId,
         library_path: handle.libraryPath,
-        generation: handle.snapshot.generation,
-        root_generation: rootGen,
+        generation: existing?.generation ?? handle.snapshot.generation,
+        root_generation: existing?.root_generation ?? rootGen,
         crates: [...(existing?.crates ?? []), crate],
       };
       const saved = saveStage(ctx.stateDir, stage);

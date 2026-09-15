@@ -134,4 +134,14 @@ describe("stage store", () => {
     const r = saveStage(join(blocker, "state"), stage());
     expect(isSeratoError(r)).toBe(true);
   });
+
+  // C4: preview_changes reads without the write lock, so the stage file can
+  // be deleted (by another instance's apply_changes/discard_changes) between
+  // this function's existsSync check and its readFileSync -- that race
+  // should read back as "nothing staged", not as a refusal. Not covered by a
+  // test: node:fs's ESM named exports are not spyable (vi.spyOn throws
+  // "Cannot redefine property: readFileSync" -- the module namespace object
+  // is non-configurable), so the fs import loadStage uses cannot be
+  // intercepted from a test in this environment. Implemented directly below
+  // instead; verified by reading the code path.
 });

@@ -121,6 +121,12 @@ export function loadStage(stateDir: string, libraryId: string): Stage | null | S
   try {
     parsed = JSON.parse(readFileSync(path, "utf8"));
   } catch (e) {
+    // preview_changes reads without the write lock, so the file can be
+    // deleted between the existsSync above and this read -- by
+    // apply_changes/discard_changes in another instance, clearing a stage
+    // that really is now empty. That is not the user's staged work in an
+    // unreadable state, so it is treated as no stage rather than refused.
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return null;
     // The user's staged work, unreadable. Refused loudly rather than treated
     // as empty, which would discard it without a word.
     return refuse("stage_unreadable", `the stage file cannot be read: ${String(e)}`, { path });
