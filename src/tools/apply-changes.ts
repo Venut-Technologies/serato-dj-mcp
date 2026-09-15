@@ -62,15 +62,19 @@ export async function applyChanges(
   if (isSeratoError(lib)) return lib;
   const rootPath = join(lib.path, "root.sqlite");
 
-  const stage = loadStage(ctx.stateDir, lib.uuid);
-  if (isSeratoError(stage)) return stage;
-  if (stage === null || stage.crates.length === 0) {
-    return ok({ applied: [], backup_paths: null, restart_required: false });
-  }
-
   const lock = acquireWriteLock(ctx.stateDir, lib.uuid);
   if (isSeratoError(lock)) return lock;
   try {
+    // Ruling 10 part A.3: the stage must be read by the same holder of the
+    // lock that later clears it. Reading it before the lock leaves a window
+    // where a crate staged in that gap is applied over and then deleted by
+    // clearStage below, without ever having been applied itself.
+    const stage = loadStage(ctx.stateDir, lib.uuid);
+    if (isSeratoError(stage)) return stage;
+    if (stage === null || stage.crates.length === 0) {
+      return ok({ applied: [], backup_paths: null, restart_required: false });
+    }
+
     // Spec 5.1.1 and 5.1.2.
     if (!existsSync(rootPath)) {
       return err("write_refused", "this library has no root.sqlite to write crates into", {

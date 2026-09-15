@@ -7,7 +7,7 @@ import { readManifest } from "../../src/apply/manifest.js";
 import { acquireWriteLock } from "../../src/apply/mutex.js";
 import type { ProcessProbe } from "../../src/apply/serato.js";
 import { isSeratoError } from "../../src/errors.js";
-import { loadStage } from "../../src/stage/store.js";
+import { loadStage, stagePath } from "../../src/stage/store.js";
 import { applyChanges } from "../../src/tools/apply-changes.js";
 import { searchTracks } from "../../src/tools/search-tracks.js";
 import { stageCrate } from "../../src/tools/stage-crate.js";
@@ -156,6 +156,24 @@ describe("apply_changes", () => {
     }
     expect(crates()).toEqual([]);
     expect(readdirSync(ctx.stateDir)).not.toContain("backups");
+  });
+
+  // Ruling 10 part A.3: the stage must be read only after the lock is held,
+  // by the same call that will clear it -- proven here by making the stage
+  // unreadable and showing that a held lock reports busy rather than reading
+  // (and reporting on) that corruption.
+  it("reports busy rather than reading a corrupted stage when the lock is held", async () => {
+    const { ctx, libraryId, crates } = await stagedLibrary();
+    writeFileSync(stagePath(ctx.stateDir, libraryId), "{not json");
+    const held = acquireWriteLock(ctx.stateDir, libraryId);
+    if (isSeratoError(held)) throw new Error("unexpected error");
+    try {
+      const r = await applyChanges({ confirm: true }, ctx);
+      expect(isSeratoError(r) && r.error.code).toBe("busy");
+    } finally {
+      held.release();
+    }
+    expect(crates()).toEqual([]);
   });
 
   it("applies several staged crates in one go", async () => {

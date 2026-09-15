@@ -1,9 +1,11 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
+import { acquireWriteLock } from "../../src/apply/mutex.js";
+import { resolveLibrary } from "../../src/discovery/index.js";
 import { isSeratoError } from "../../src/errors.js";
 import { loadStage, type Stage } from "../../src/stage/store.js";
 import { searchTracks } from "../../src/tools/search-tracks.js";
@@ -117,8 +119,85 @@ describe("stage_crate", () => {
     expect(isSeratoError(r)).toBe(true);
     if (isSeratoError(r)) {
       expect(r.error.code).toBe("write_refused");
+      expect(r.error.details?.reason).toBe("not_on_library_disk");
       expect(r.error.details?.rejected_track_ids).toEqual([Number(lastInsertRowid)]);
     }
+  });
+
+  // Ruling 10 part C.3: portable_id itself can say streaming even when a
+  // fixture leaves third_party_type at its default of 0.
+  it("refuses a track whose portable_id is a streaming URL, regardless of third_party_type", async () => {
+    const { ctx } = library({
+      tracks: [
+        {
+          externalId: 1,
+          portableId: "streaming://service/track/1",
+          name: "URLStream",
+          artist: "S",
+        },
+      ],
+    });
+    const ids = await idsByTitle(ctx);
+    const r = await stageCrate({ name: "Gigs", track_ids: [ids.get("URLStream")] }, ctx);
+    expect(isSeratoError(r)).toBe(true);
+    if (isSeratoError(r)) {
+      expect(r.error.code).toBe("write_refused");
+      expect(r.error.details?.reason).toBe("streaming");
+      expect(r.error.details?.rejected_track_ids).toEqual([ids.get("URLStream")]);
+    }
+  });
+
+  // Ruling 10 part C.1: no connection row names root.sqlite at all -- an
+  // unfamiliar schema, distinct from a track that is genuinely on another
+  // disk.
+  it("says the library disk is unknown when no connection row names root.sqlite", async () => {
+    const { ctx, masterPath } = library();
+    const m = new DatabaseSync(masterPath);
+    m.prepare("UPDATE connection SET database_uri = ? WHERE location_id = 2").run(
+      "/Users/x/Library/Application Support/Serato/Library/location.sqlite",
+    );
+    m.close();
+    const ids = await idsByTitle(ctx);
+    const r = await stageCrate({ name: "Gigs", track_ids: [ids.get("Rain")] }, ctx);
+    expect(isSeratoError(r)).toBe(true);
+    if (isSeratoError(r)) {
+      expect(r.error.code).toBe("write_refused");
+      expect(r.error.details?.reason).toBe("library_disk_unknown");
+    }
+  });
+
+  // Ruling 10 part C.2: an unreadable live root.sqlite is its own reason, not
+  // the generic snapshot_failed that a thrown error would otherwise surface
+  // as (that code names the snapshot copy, not root.sqlite).
+  it("refuses when root.sqlite cannot be read, rather than reporting a snapshot failure", async () => {
+    const { ctx, rootPath } = library();
+    writeFileSync(rootPath, "not a database");
+    const ids = await idsByTitle(ctx);
+    const r = await stageCrate({ name: "Gigs", track_ids: [ids.get("Rain")] }, ctx);
+    expect(isSeratoError(r)).toBe(true);
+    if (isSeratoError(r)) {
+      expect(r.error.code).toBe("write_refused");
+      expect(r.error.details?.reason).toBe("root_unreadable");
+    }
+  });
+
+  // Ruling 10 part A: two server instances must not be able to stage over
+  // each other's crate.
+  it("refuses to stage while another instance holds the write lock, and stages nothing", async () => {
+    const { ctx, dir } = library();
+    const lib = resolveLibrary({ library: dir, roots: [] });
+    if (isSeratoError(lib)) throw new Error("unexpected error");
+    const held = acquireWriteLock(ctx.stateDir, lib.uuid);
+    if (isSeratoError(held)) throw new Error("unexpected error");
+    let r: Awaited<ReturnType<typeof stageCrate>>;
+    try {
+      const ids = await idsByTitle(ctx);
+      r = await stageCrate({ name: "Gigs", track_ids: [ids.get("Rain")] }, ctx);
+    } finally {
+      held.release();
+    }
+    expect(isSeratoError(r) && r.error.code).toBe("busy");
+    expect(loadStage(ctx.stateDir, lib.uuid)).toBeNull();
   });
 
   it("deduplicates repeated ids and says so", async () => {

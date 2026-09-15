@@ -11,6 +11,7 @@ import {
   writeSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+import { z } from "zod";
 import { err, type SeratoError } from "../errors.js";
 
 export const STAGE_SCHEMA_VERSION = 1;
@@ -39,6 +40,41 @@ export type Stage = {
   root_generation: string;
   crates: StagedCrate[];
 };
+
+/**
+ * The full shape of a stage file, checked field by field on every load.
+ *
+ * Before this, only `Array.isArray(crates)` and `typeof library_id ===
+ * "string"` were checked, so `{"crates":[{}]}` passed loadStage and reached
+ * previewChanges/discardChanges as a `Stage` with `undefined` where a track's
+ * `portable_id` should be -- previewChanges threw a TypeError, and
+ * discardChanges returned `discarded_ids: [undefined]`, which fails its own
+ * output schema (review finding, Ruling 10 part B). tracks.min(1) matches
+ * spec 5.8: Serato deletes an empty crate, so a staged one with no tracks is
+ * already the wrong shape, not merely an edge case.
+ */
+const stagedTrackSchema = z.object({
+  track_id: z.number().int(),
+  portable_id: z.string().min(1),
+  title: z.string(),
+  artist: z.string(),
+});
+
+const stagedCrateSchema = z.object({
+  staged_id: z.string().min(1),
+  name: z.string().min(1),
+  tracks: z.array(stagedTrackSchema).min(1),
+  staged_at: z.string(),
+});
+
+const stageSchema = z.object({
+  schema_version: z.literal(1),
+  library_id: z.string().min(1),
+  library_path: z.string(),
+  generation: z.string(),
+  root_generation: z.string(),
+  crates: z.array(stagedCrateSchema),
+});
 
 export function stagePath(stateDir: string, libraryId: string): string {
   return join(stateDir, "stage", `${libraryId}.json`);
@@ -96,10 +132,18 @@ export function loadStage(stateDir: string, libraryId: string): Stage | null | S
       found: (s as { schema_version?: unknown } | null)?.schema_version ?? null,
     });
   }
-  if (!Array.isArray(s.crates) || typeof s.library_id !== "string") {
-    return refuse("stage_unreadable", "the stage file is missing required fields", { path });
+  const result = stageSchema.safeParse(parsed);
+  if (!result.success) {
+    const issues = result.error.issues
+      .slice(0, 5)
+      .map((i) => (i.path.length > 0 ? `${i.path.join(".")}: ${i.message}` : i.message))
+      .join("; ");
+    return refuse("stage_unreadable", `the stage file has an invalid shape: ${issues}`, {
+      path,
+      issues,
+    });
   }
-  return s as Stage;
+  return result.data;
 }
 
 export function saveStage(stateDir: string, stage: Stage): true | SeratoError {

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
+import { acquireWriteLock } from "../apply/mutex.js";
 import { existingCrateId, findAnchors, resolveSpaceAssets, rootGeneration } from "../apply/root.js";
 import { parseToolArgs } from "../args.js";
 import { ok, type Warning, warningSchema } from "../envelope.js";
@@ -52,6 +53,19 @@ type AssetRow = {
 };
 
 type Rejection = { track_id: number; reason: string };
+
+/** Ruling 10 part C.1: a specific message for the one rejection reason that
+ *  is not "this track" but "this whole schema" -- every other reason keeps
+ *  the generic message below. */
+const REJECTION_MESSAGES: Record<string, string> = {
+  library_disk_unknown:
+    "cannot tell which location is this library's own disk: no connection row names root.sqlite",
+};
+
+/** SQLITE_BUSY is primary result code 5; node:sqlite reports it, or an
+ *  extended variant of it, as errcode. Duplicated from apply/mutex.ts --
+ *  Ruling 10 leaves consolidating the two for later. */
+const isSqliteBusy = (e: unknown) => (((e as { errcode?: number }).errcode ?? -1) & 0xff) === 5;
 
 export async function stageCrate(
   raw: unknown,
@@ -109,6 +123,12 @@ export async function stageCrate(
         : [],
     );
 
+    // Ruling 10 part C.1: an empty set here means no connection row names
+    // root.sqlite at all -- an unfamiliar schema, not "every track happens to
+    // live on another disk". Naming that precisely stops the model from
+    // concluding "move the file" when the real problem is elsewhere.
+    const diskUnknown = bootLocations.size === 0;
+
     const rejections: Rejection[] = [];
     for (const id of ids) {
       const row = byId.get(id);
@@ -116,7 +136,10 @@ export async function stageCrate(
       if (isStreamingPortableId(row.portable_id) || (row.third_party_type ?? 0) !== 0) {
         rejections.push({ track_id: id, reason: "streaming" });
       } else if (!bootLocations.has(row.location_id)) {
-        rejections.push({ track_id: id, reason: "not_on_library_disk" });
+        rejections.push({
+          track_id: id,
+          reason: diskUnknown ? "library_disk_unknown" : "not_on_library_disk",
+        });
       }
     }
 
@@ -143,11 +166,15 @@ export async function stageCrate(
       }
       if (rejections.length > 0) {
         // Spec 3.5: a partially created crate is worse than a refusal.
-        return err("write_refused", "some tracks cannot be written into a crate", {
-          reason: rejections[0].reason,
-          rejected_track_ids: rejections.map((r) => r.track_id),
-          rejected: rejections,
-        });
+        return err(
+          "write_refused",
+          REJECTION_MESSAGES[rejections[0].reason] ?? "some tracks cannot be written into a crate",
+          {
+            reason: rejections[0].reason,
+            rejected_track_ids: rejections.map((r) => r.track_id),
+            rejected: rejections,
+          },
+        );
       }
 
       const conflict = existingCrateId(root, anchors.rootContainerId, named.name);
@@ -173,52 +200,80 @@ export async function stageCrate(
       }
 
       const rootGen = rootGeneration(root, rootPath, handle.libraryId);
-      const existing = loadStage(ctx.stateDir, handle.libraryId);
-      if (isSeratoError(existing)) return existing;
-      const clash = existing?.crates.find((c) => sameCrateName(c.name, named.name));
-      if (clash !== undefined) {
-        return err("invalid_crate_name", `a crate named "${clash.name}" is already staged`, {
-          reason: "already_staged",
-          staged_id: clash.staged_id,
+
+      // Ruling 10 part A.1: from here to the save, the stage file is read,
+      // checked and written as one step. Without the lock, two server
+      // instances staging at once can each read the same stage, and the
+      // second save silently drops the first's crate. Every read above --
+      // of the snapshot and of root.sqlite -- is already done, so the lock is
+      // held only around the stage file itself.
+      const lock = acquireWriteLock(ctx.stateDir, handle.libraryId);
+      if (isSeratoError(lock)) return lock;
+      try {
+        const existing = loadStage(ctx.stateDir, handle.libraryId);
+        if (isSeratoError(existing)) return existing;
+        const clash = existing?.crates.find((c) => sameCrateName(c.name, named.name));
+        if (clash !== undefined) {
+          return err("invalid_crate_name", `a crate named "${clash.name}" is already staged`, {
+            reason: "already_staged",
+            staged_id: clash.staged_id,
+          });
+        }
+
+        const crate: StagedCrate = {
+          staged_id: randomUUID().slice(0, 8),
+          name: named.name,
+          tracks: ids.map((id) => {
+            const row = byId.get(id) as AssetRow;
+            return {
+              track_id: id,
+              portable_id: row.portable_id,
+              title: row.name ?? "",
+              artist: row.artist ?? "",
+            };
+          }),
+          staged_at: new Date().toISOString(),
+        };
+        const stage: Stage = {
+          schema_version: 1,
+          library_id: handle.libraryId,
+          library_path: handle.libraryPath,
+          generation: handle.snapshot.generation,
+          root_generation: rootGen,
+          crates: [...(existing?.crates ?? []), crate],
+        };
+        const saved = saveStage(ctx.stateDir, stage);
+        if (isSeratoError(saved)) return saved;
+
+        return ok(
+          {
+            staged_id: crate.staged_id,
+            library_id: handle.libraryId,
+            name: crate.name,
+            track_count: crate.tracks.length,
+            tracks: crate.tracks.map((t) => ({ id: t.track_id, title: t.title, artist: t.artist })),
+            root_generation: rootGen,
+          },
+          handle.snapshot.generation,
+          warnings,
+        );
+      } finally {
+        lock.release();
+      }
+    } catch (e) {
+      // Ruling 10 part C.2: root.sqlite is live and Serato may hold it open.
+      // SQLITE_BUSY means exactly that and is worth a retry; anything else --
+      // a damaged file, an I/O error -- is not, and reporting it as the
+      // generic snapshot_failed would blame the wrong database.
+      if (isSqliteBusy(e)) {
+        return err("busy", "root.sqlite is being written, most likely by Serato", {
+          retry_after_ms: 3000,
         });
       }
-
-      const crate: StagedCrate = {
-        staged_id: randomUUID().slice(0, 8),
-        name: named.name,
-        tracks: ids.map((id) => {
-          const row = byId.get(id) as AssetRow;
-          return {
-            track_id: id,
-            portable_id: row.portable_id,
-            title: row.name ?? "",
-            artist: row.artist ?? "",
-          };
-        }),
-        staged_at: new Date().toISOString(),
-      };
-      const stage: Stage = {
-        schema_version: 1,
-        library_id: handle.libraryId,
-        library_path: handle.libraryPath,
-        generation: handle.snapshot.generation,
-        root_generation: rootGen,
-        crates: [...(existing?.crates ?? []), crate],
-      };
-      const saved = saveStage(ctx.stateDir, stage);
-      if (isSeratoError(saved)) return saved;
-
-      return ok(
-        {
-          staged_id: crate.staged_id,
-          library_id: handle.libraryId,
-          name: crate.name,
-          track_count: crate.tracks.length,
-          tracks: crate.tracks.map((t) => ({ id: t.track_id, title: t.title, artist: t.artist })),
-          root_generation: rootGen,
-        },
-        handle.snapshot.generation,
-        warnings,
+      return err(
+        "write_refused",
+        `root.sqlite could not be read: ${e instanceof Error ? e.message : String(e)}`,
+        { reason: "root_unreadable", rejected_track_ids: [] },
       );
     } finally {
       root?.close();

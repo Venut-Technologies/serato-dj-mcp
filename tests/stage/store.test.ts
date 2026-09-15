@@ -70,6 +70,44 @@ describe("stage store", () => {
     }
   });
 
+  // Ruling 10 part B: before this, only Array.isArray(crates) was checked, so
+  // an empty crate object passed loadStage and reached discard/preview as a
+  // Stage with undefined fields.
+  it("refuses a stage whose crate is missing required fields", () => {
+    const dir = tmp();
+    saveStage(dir, stage());
+    writeFileSync(stagePath(dir, "abc123def456"), JSON.stringify({ ...stage(), crates: [{}] }));
+    const r = loadStage(dir, "abc123def456");
+    expect(isSeratoError(r)).toBe(true);
+    if (isSeratoError(r)) {
+      expect(r.error.code).toBe("write_refused");
+      expect(r.error.details?.reason).toBe("stage_unreadable");
+    }
+  });
+
+  it("refuses a stage whose track is missing portable_id", () => {
+    const dir = tmp();
+    saveStage(dir, stage());
+    const bad = {
+      ...stage(),
+      crates: [
+        {
+          staged_id: "s1",
+          name: "Gigs 2026",
+          tracks: [{ track_id: 7, title: "A", artist: "Z" }],
+          staged_at: "2026-09-14T10:00:00.000Z",
+        },
+      ],
+    };
+    writeFileSync(stagePath(dir, "abc123def456"), JSON.stringify(bad));
+    const r = loadStage(dir, "abc123def456");
+    expect(isSeratoError(r)).toBe(true);
+    if (isSeratoError(r)) {
+      expect(r.error.code).toBe("write_refused");
+      expect(r.error.details?.reason).toBe("stage_unreadable");
+    }
+  });
+
   it("refuses a stage written by a different schema version", () => {
     const dir = tmp();
     saveStage(dir, stage());
