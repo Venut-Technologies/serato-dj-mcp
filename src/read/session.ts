@@ -13,6 +13,9 @@ export type ReadHandle = {
   schema: SchemaInfo;
   snapshot: Snapshot;
   libraryPath: string;
+  /** The library's stable id (a short hash of its path, see discovery). The
+   *  stage, the manifest and the backups are all keyed by it. */
+  libraryId: string;
   /** location_id -> volume root, from connection.database_uri. location.path
    *  is NULL in every observed row (spec 2.3), so this is the only source. */
   volumeRoots: Map<number, string>;
@@ -59,6 +62,7 @@ export async function readSession<T>(
       schema,
       snapshot,
       libraryPath: lib.path,
+      libraryId: lib.uuid,
       volumeRoots: volumeRoots(db, schema.tables),
     });
   } catch (e) {
