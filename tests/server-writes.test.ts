@@ -33,6 +33,30 @@ function cli(allowWrites: boolean) {
 
 const WRITE_TOOLS = ["apply_changes", "discard_changes", "preview_changes", "stage_crate"];
 
+/**
+ * Calls a tool the way a real client does: tools/list first, then the call.
+ * Copied from tests/server.test.ts (see that file's doc comment on the same
+ * helper): client.listTools() runs cacheToolMetadata(), which is what builds
+ * the structuredContent validator that destroyed every error response in the
+ * outputSchema defect fixed in 62cbab3. A refusal that skipped listTools()
+ * first could not have caught that regression.
+ */
+async function callToolAfterListingOverTheWire(
+  server: ReturnType<typeof createServer>,
+  name: string,
+  args: Record<string, unknown> = {},
+) {
+  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "test-client", version: "0.0.0" });
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  try {
+    await client.listTools();
+    return await client.callTool({ name, arguments: args });
+  } finally {
+    await client.close();
+  }
+}
+
 describe("write tools over the wire", () => {
   it("registers the four write tools only with --allow-writes", () => {
     expect(
@@ -98,5 +122,25 @@ describe("write tools over the wire", () => {
       .all(ROOT_ANCHOR_CONTAINER_ID);
     db.close();
     expect(row).toEqual([{ name: "Wire Test" }]);
+  });
+
+  // A refusal must survive the same ordering as a success does: listTools()
+  // builds the client's structuredContent validator, and that validator is
+  // what destroyed every error response in the outputSchema defect fixed in
+  // 62cbab3 (see callToolAfterListingOverTheWire() above). Each case here is
+  // refused before anything is written or staged, so none of them depends on
+  // another having run first.
+  it.each([
+    { tool: "apply_changes", args: { confirm: false }, code: "invalid_argument" },
+    { tool: "stage_crate", args: { name: "Gigs", track_ids: [999999] }, code: "unknown_ids" },
+    { tool: "discard_changes", args: { staged_id: "nope" }, code: "unknown_ids" },
+    { tool: "preview_changes", args: { format: "bogus" }, code: "invalid_argument" },
+  ])("$tool refuses $args over the wire after listTools()", async ({ tool, args, code }) => {
+    const server = createServer(cli(true).cli);
+    const result = await callToolAfterListingOverTheWire(server, tool, args);
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toBeUndefined();
+    const payload = JSON.parse((result.content as { type: string; text: string }[])[0].text);
+    expect(payload.error.code).toBe(code);
   });
 });

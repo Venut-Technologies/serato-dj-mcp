@@ -79,9 +79,11 @@ those itself.
 Before every write both databases are backed up under
 `<state-dir>/backups/<library-id>/<timestamp>/` (default state-dir:
 `~/Library/Application Support/serato-dj-mcp`), and the last ten are kept. **There is no undo
-tool.** To undo a write, quit Serato, then copy the backed-up `root.sqlite` and `master.sqlite`
-back into the library folder and delete `master.sqlite-wal` and `master.sqlite-shm` there.
-Restoring them also rolls back anything Serato itself recorded in the library after that
+tool.** To undo a write, quit Serato, delete `root.sqlite-journal` first if one is present (a hot
+journal left by a write that was interrupted mid-transaction; left in place, the next opener rolls
+it back into whatever you copy over `root.sqlite`), then copy the backed-up `root.sqlite` and
+`master.sqlite` back into the library folder and delete `master.sqlite-wal` and `master.sqlite-shm`
+there. Restoring them also rolls back anything Serato itself recorded in the library after that
 backup was taken.
 
 Nested crates are not supported: a crate created this way inside another crate is deleted by
