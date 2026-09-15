@@ -1,11 +1,11 @@
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { rootGeneration } from "../../src/apply/root.js";
 import type { ProcessProbe } from "../../src/apply/serato.js";
-import { type ApplyInput, applyCrates } from "../../src/apply/transaction.js";
+import { type ApplyInput, applyCrates, verifyCommitted } from "../../src/apply/transaction.js";
 import { isSeratoError } from "../../src/errors.js";
 import type { StagedCrate } from "../../src/stage/store.js";
 import {
@@ -238,5 +238,119 @@ describe("applyCrates", () => {
       holder.close();
     }
     expect(revisions(read).sr).toBe(ROOT_BASE_REVISION);
+  });
+
+  // Only contention is worth a retry. A file that is not a database fails the
+  // same way every time, so it must not come back as busy.
+  it("does not call a damaged root.sqlite busy", () => {
+    const { input, rootPath } = setup();
+    writeFileSync(rootPath, "not a database ".repeat(300));
+    const r = applyCrates(input([crate("s1", "A", ["Users/x/1.flac"])]));
+    expect(isSeratoError(r) && r.error.code).toBe("write_failed_not_committed");
+    if (isSeratoError(r)) expect(r.error.details?.stage).toBe("begin");
+  });
+
+  // A reader on another connection holds SHARED, so COMMIT cannot take
+  // EXCLUSIVE. That is contention: busy with a retry hint, and nothing written.
+  // Takes BUSY_TIMEOUT_MS by construction.
+  it("reports busy, and writes nothing, when a reader blocks COMMIT", () => {
+    const { input, rootPath, read } = setup();
+    const reader = new DatabaseSync(rootPath, { readOnly: true });
+    reader.exec("BEGIN");
+    reader.prepare("SELECT count(*) AS n FROM container").get();
+    const r = (() => {
+      try {
+        return applyCrates(input([crate("s1", "A", ["Users/x/1.flac"])]));
+      } finally {
+        reader.exec("COMMIT");
+        reader.close();
+      }
+    })();
+    expect(isSeratoError(r) && r.error.code).toBe("busy");
+    if (isSeratoError(r)) expect(r.error.details?.retry_after_ms).toBe(3000);
+    expect(revisions(read).sr).toBe(ROOT_BASE_REVISION);
+  });
+
+  // Spec 5.1.3: the second Serato check must run while the write lock is held,
+  // or Serato could start between the check and BEGIN. Observed from inside the
+  // probe: another writer must already be shut out.
+  it("checks Serato while already holding root.sqlite's write lock", () => {
+    const { input, rootPath, masterPath } = setup();
+    const m = new DatabaseSync(masterPath);
+    m.prepare(
+      "INSERT INTO lock (lock_policy, owner_process_id, owner_process_name) VALUES (1, 500, 'Serato DJ Lite')",
+    ).run();
+    m.close();
+    let lockedDuringCheck: boolean | undefined;
+    const observing: ProcessProbe = {
+      isAlive: () => {
+        const other = new DatabaseSync(rootPath);
+        try {
+          other.exec("BEGIN IMMEDIATE");
+          other.exec("ROLLBACK");
+          lockedDuringCheck = false;
+        } catch (e) {
+          lockedDuringCheck = (((e as { errcode?: number }).errcode ?? -1) & 0xff) === 5;
+        } finally {
+          other.close();
+        }
+        return false;
+      },
+      nameOf: () => null,
+    };
+    const r = applyCrates(input([crate("s1", "A", ["Users/x/1.flac"])], { probe: observing }));
+    if (isSeratoError(r)) throw new Error(`unexpected error: ${r.error.message}`);
+    expect(lockedDuringCheck).toBe(true);
+  });
+
+  it("refuses, before writing, a space whose revision is already ahead of serato's", () => {
+    const { input, rootPath, read } = setup();
+    const db = new DatabaseSync(rootPath);
+    db.prepare("UPDATE space SET revision = ? WHERE id = ?").run(
+      ROOT_BASE_REVISION + 5,
+      ROOT_SPACE_ID,
+    );
+    db.close();
+    const r = applyCrates(input([crate("s1", "A", ["Users/x/1.flac"])]));
+    expect(isSeratoError(r) && r.error.details?.reason).toBe("space_revision_ahead");
+    expect(revisions(read)).toEqual({ sr: ROOT_BASE_REVISION, spr: ROOT_BASE_REVISION + 5 });
+  });
+
+  it("refuses a missing root.sqlite without creating one", () => {
+    const { input, rootPath } = setup();
+    rmSync(rootPath);
+    const r = applyCrates(input([crate("s1", "A", ["Users/x/1.flac"])]));
+    expect(isSeratoError(r) && r.error.details?.reason).toBe("root_missing");
+    expect(existsSync(rootPath)).toBe(false);
+  });
+});
+
+describe("verifyCommitted", () => {
+  // No fixture can make a committed write fail to read back through
+  // applyCrates, so the one branch that hands the user their backup paths is
+  // tested directly.
+  it("reports committed_unverified with the backup paths when the read-back does not match", () => {
+    const { input } = setup();
+    const r = verifyCommitted(input([]), {
+      applied: [{ staged_id: "s1", name: "Ghost", container_id: 9999, track_count: 2 }],
+      revision: ROOT_BASE_REVISION + 1,
+      warnings: [],
+    });
+    expect(isSeratoError(r) && r.error.code).toBe("write_failed_committed_unverified");
+    if (isSeratoError(r)) {
+      expect(r.error.details?.stage).toBe("verify_after_commit");
+      expect(r.error.details?.backup_paths).toEqual({
+        root: "/b/root.sqlite",
+        master: "/b/master.sqlite",
+      });
+    }
+  });
+
+  it("returns null when a real applied write reads back correctly", () => {
+    const { input } = setup();
+    const applyInput = input([crate("s1", "A", ["Users/x/1.flac"])]);
+    const r = applyCrates(applyInput);
+    if (isSeratoError(r)) throw new Error(`unexpected error: ${r.error.message}`);
+    expect(verifyCommitted(applyInput, r)).toBeNull();
   });
 });

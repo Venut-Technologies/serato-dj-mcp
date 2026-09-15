@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import type { Warning } from "../envelope.js";
 import { err, isSeratoError, type SeratoError } from "../errors.js";
@@ -20,6 +21,10 @@ export const BUSY_TIMEOUT_MS = 3000;
  *  The primary code 19 is shared with NOT NULL (1299), CHECK and FK, so only
  *  the extended code identifies a name collision (spec 5.4). */
 const SQLITE_CONSTRAINT_UNIQUE = 2067;
+
+/** SQLITE_BUSY is primary result code 5; its extended variants (e.g.
+ *  BUSY_RECOVERY, BUSY_SNAPSHOT) mask down to it in the low byte. */
+const isBusy = (e: unknown): boolean => (((e as { errcode?: number }).errcode ?? -1) & 0xff) === 5;
 
 export type AppliedCrate = {
   staged_id: string;
@@ -51,6 +56,15 @@ function writeInTransaction(input: ApplyInput): ApplyOutcome | SeratoError {
   const notCommitted = (stage: string, message: string, extra: Record<string, unknown> = {}) =>
     err("write_failed_not_committed", message, { stage, ...extra });
 
+  // Checked before opening: `new DatabaseSync(path)` creates a 0-byte
+  // root.sqlite for a path that does not exist yet, which must never happen.
+  if (!existsSync(input.rootPath)) {
+    return err("write_refused", "this library has no root.sqlite to write crates into", {
+      reason: "root_missing",
+      rejected_track_ids: [],
+    });
+  }
+
   let db: DatabaseSync;
   try {
     db = new DatabaseSync(input.rootPath);
@@ -74,9 +88,14 @@ function writeInTransaction(input: ApplyInput): ApplyOutcome | SeratoError {
     try {
       db.exec("BEGIN IMMEDIATE");
     } catch (e) {
-      return err("busy", `root.sqlite is locked by another writer: ${String(e)}`, {
-        retry_after_ms: BUSY_TIMEOUT_MS,
-      });
+      if (isBusy(e)) {
+        return err("busy", `root.sqlite is locked by another writer: ${String(e)}`, {
+          retry_after_ms: BUSY_TIMEOUT_MS,
+        });
+      }
+      // A file that is not a database fails the same way every time, so it
+      // must never invite a retry.
+      return notCommitted("begin", `cannot start the write transaction: ${String(e)}`);
     }
 
     // Spec 5.1.3: again, now that we hold the write lock. Serato may have
@@ -95,6 +114,26 @@ function writeInTransaction(input: ApplyInput): ApplyOutcome | SeratoError {
     if (isSeratoError(anchors)) {
       rollback();
       return anchors;
+    }
+
+    // The triggers only ever raise space.revision TO serato.revision, so a
+    // space already ahead of it stays ahead after this write's bump: the
+    // pre-COMMIT check below would then refuse every apply behind a
+    // misleading "revision unmoved" failure, forever. Never observed (live
+    // 72/72; spec 5.7 measured 13/12), but cheap to rule out up front.
+    const revisionsBefore = db
+      .prepare(
+        "SELECT (SELECT revision FROM serato) AS serato, (SELECT revision FROM space WHERE id = ?) AS space",
+      )
+      .get(anchors.spaceId) as { serato: number; space: number };
+    if (revisionsBefore.space > revisionsBefore.serato) {
+      rollback();
+      return err("write_refused", "the crate space's revision is already ahead of serato's", {
+        reason: "space_revision_ahead",
+        rejected_track_ids: [],
+        serato_revision: revisionsBefore.serato,
+        space_revision: revisionsBefore.space,
+      });
     }
 
     const warnings: Warning[] = [];
@@ -201,14 +240,18 @@ function writeInTransaction(input: ApplyInput): ApplyOutcome | SeratoError {
           ).lastInsertRowid,
         );
       } catch (e) {
-        rollback();
         if ((e as { errcode?: number }).errcode === SQLITE_CONSTRAINT_UNIQUE) {
+          // Read before rollback: a collision with a crate this same batch
+          // inserted earlier only still has an id while that insert stands.
+          const existingContainerId = existingCrateId(db, anchors.rootContainerId, crate.name);
+          rollback();
           return err("crate_name_conflict", `a crate named "${crate.name}" already exists`, {
-            existing_container_id: existingCrateId(db, anchors.rootContainerId, crate.name),
+            existing_container_id: existingContainerId,
             crate_name: crate.name,
             staged_id: crate.staged_id,
           });
         }
+        rollback();
         throw e;
       }
       const resolved = resolvedByCrate.get(crate.staged_id) ?? new Map<string, number>();
@@ -266,12 +309,33 @@ function writeInTransaction(input: ApplyInput): ApplyOutcome | SeratoError {
     try {
       db.exec("COMMIT");
     } catch (e) {
-      rollback();
+      if (db.isTransaction) {
+        // SQLite kept the transaction open: nothing was committed. Busy here
+        // is the expected cause -- a reader on another connection holds
+        // SHARED, e.g. stage_crate on a second server instance -- so it is
+        // contention, not failure, and gets a retry hint like any other.
+        rollback();
+        if (isBusy(e)) {
+          return err("busy", `COMMIT is blocked by another reader: ${String(e)}`, {
+            retry_after_ms: BUSY_TIMEOUT_MS,
+          });
+        }
+        return notCommitted("commit", `COMMIT failed and the write was rolled back: ${String(e)}`);
+      }
+      // SQLite has already rolled back on its own here -- measured for
+      // IOERR_DELETE, which leaves a hot journal for the next opener.
       return notCommitted("commit", `COMMIT failed and the write was rolled back: ${String(e)}`);
     }
     return { applied, revision, warnings };
   } catch (e) {
     rollback();
+    if (isBusy(e)) {
+      // A large batch spilling pages needs EXCLUSIVE mid-transaction; that is
+      // contention too, not a failure to report as flatly refused.
+      return err("busy", `root.sqlite became busy mid-transaction: ${String(e)}`, {
+        retry_after_ms: BUSY_TIMEOUT_MS,
+      });
+    }
     return notCommitted("transaction", `the write failed and was rolled back: ${String(e)}`);
   } finally {
     db.close();
@@ -283,7 +347,7 @@ function writeInTransaction(input: ApplyInput): ApplyOutcome | SeratoError {
  * committed_unverified a reachable state rather than a hope. A failure here
  * means the data may well be in the file; the caller gets the backup paths.
  */
-function verifyCommitted(input: ApplyInput, outcome: ApplyOutcome): SeratoError | null {
+export function verifyCommitted(input: ApplyInput, outcome: ApplyOutcome): SeratoError | null {
   const unverified = (message: string, problems: string[] = []) =>
     err("write_failed_committed_unverified", message, {
       stage: "verify_after_commit",
@@ -293,10 +357,24 @@ function verifyCommitted(input: ApplyInput, outcome: ApplyOutcome): SeratoError 
   let db: DatabaseSync | undefined;
   try {
     db = new DatabaseSync(input.rootPath, { readOnly: true });
+    db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
     const problems: string[] = [];
     const { revision } = db.prepare("SELECT revision FROM serato").get() as { revision: number };
     if (revision !== outcome.revision)
       problems.push(`serato.revision is ${revision}, expected ${outcome.revision}`);
+    if (outcome.applied.length > 0) {
+      // The applied crates all share one space (findAnchors resolves exactly
+      // one), so the first container's own space_id identifies it, without
+      // this read-only connection re-deriving anchors a second way.
+      const spaceRevision = db
+        .prepare(
+          "SELECT revision FROM space WHERE id = (SELECT space_id FROM container WHERE id = ?)",
+        )
+        .get(outcome.applied[0].container_id) as { revision: number } | undefined;
+      if (spaceRevision?.revision !== outcome.revision) {
+        problems.push(`space.revision is ${spaceRevision?.revision}, expected ${outcome.revision}`);
+      }
+    }
     for (const a of outcome.applied) {
       const row = db.prepare("SELECT name FROM container WHERE id = ?").get(a.container_id) as
         | { name: string }
