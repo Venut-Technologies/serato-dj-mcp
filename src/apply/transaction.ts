@@ -330,8 +330,11 @@ function writeInTransaction(input: ApplyInput): ApplyOutcome | SeratoError {
   } catch (e) {
     rollback();
     if (isBusy(e)) {
-      // A large batch spilling pages needs EXCLUSIVE mid-transaction; that is
-      // contention too, not a failure to report as flatly refused.
+      // Defensive, not observed: measured with 200k container_asset rows
+      // inserted while a reader held SHARED for 60s, a page-cache spill does
+      // not surface as busy -- the transaction waited 60.4s under
+      // busy_timeout and committed, rather than throwing here. Kept in case
+      // some other mid-transaction contention does throw busy at this point.
       return err("busy", `root.sqlite became busy mid-transaction: ${String(e)}`, {
         retry_after_ms: BUSY_TIMEOUT_MS,
       });

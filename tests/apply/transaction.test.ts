@@ -323,12 +323,34 @@ describe("applyCrates", () => {
     expect(isSeratoError(r) && r.error.details?.reason).toBe("root_missing");
     expect(existsSync(rootPath)).toBe(false);
   });
+
+  // The pre-COMMIT checks never look at names, so a trigger that renames the
+  // row right after its own insert still commits cleanly -- only
+  // verifyCommitted, on the new connection after COMMIT, catches it.
+  it("fails verification after commit when the crate's name changes post-insert", () => {
+    const { input, rootPath } = setup();
+    const seed = new DatabaseSync(rootPath);
+    seed.exec(
+      `CREATE TRIGGER mangle AFTER INSERT ON container WHEN new.name = 'Mangle'
+       BEGIN UPDATE container SET name = 'Mangled' WHERE id = new.id; END`,
+    );
+    seed.close();
+    const applyInput = input([crate("s1", "Mangle", ["Users/x/1.flac"])]);
+    const r = applyCrates(applyInput);
+    expect(isSeratoError(r)).toBe(true);
+    if (isSeratoError(r)) {
+      expect(r.error.code).toBe("write_failed_committed_unverified");
+      expect(r.error.details?.stage).toBe("verify_after_commit");
+      expect(r.error.details?.backup_paths).toEqual(applyInput.backupPaths);
+      expect(r.error.details?.problems).toEqual(['container 4 does not read back as "Mangle"']);
+    }
+  });
 });
 
 describe("verifyCommitted", () => {
-  // No fixture can make a committed write fail to read back through
-  // applyCrates, so the one branch that hands the user their backup paths is
-  // tested directly.
+  // A container that does not exist at all: every axis mismatches at once,
+  // which is a different shape from the single-axis tests below and still
+  // proves the branch that hands the user their backup paths.
   it("reports committed_unverified with the backup paths when the read-back does not match", () => {
     const { input } = setup();
     const r = verifyCommitted(input([]), {
@@ -343,6 +365,12 @@ describe("verifyCommitted", () => {
         root: "/b/root.sqlite",
         master: "/b/master.sqlite",
       });
+      expect(r.error.details?.problems).toEqual([
+        `serato.revision is ${ROOT_BASE_REVISION}, expected ${ROOT_BASE_REVISION + 1}`,
+        `space.revision is undefined, expected ${ROOT_BASE_REVISION + 1}`,
+        'container 9999 does not read back as "Ghost"',
+        "container 9999 reads back 0 tracks",
+      ]);
     }
   });
 
@@ -352,5 +380,52 @@ describe("verifyCommitted", () => {
     const r = applyCrates(applyInput);
     if (isSeratoError(r)) throw new Error(`unexpected error: ${r.error.message}`);
     expect(verifyCommitted(applyInput, r)).toBeNull();
+  });
+
+  // One axis at a time, called directly, with the exact problems array
+  // pinned: a mutation that drops just that one comparison shows up here
+  // even while every other axis still agrees.
+  it("names both revisions when serato.revision does not match", () => {
+    const { input } = setup();
+    const applyInput = input([crate("s1", "A", ["Users/x/1.flac"])]);
+    const r = applyCrates(applyInput);
+    if (isSeratoError(r)) throw new Error(`unexpected error: ${r.error.message}`);
+    const mismatched = verifyCommitted(applyInput, { ...r, revision: r.revision + 1 });
+    expect(isSeratoError(mismatched)).toBe(true);
+    if (isSeratoError(mismatched)) {
+      expect(mismatched.error.details?.problems).toEqual([
+        `serato.revision is ${r.revision}, expected ${r.revision + 1}`,
+        `space.revision is ${r.revision}, expected ${r.revision + 1}`,
+      ]);
+    }
+  });
+
+  it("names the track count when it does not match", () => {
+    const { input } = setup();
+    const applyInput = input([crate("s1", "A", ["Users/x/1.flac"])]);
+    const r = applyCrates(applyInput);
+    if (isSeratoError(r)) throw new Error(`unexpected error: ${r.error.message}`);
+    const mismatched = verifyCommitted(applyInput, {
+      ...r,
+      applied: [{ ...r.applied[0], track_count: 5 }],
+    });
+    expect(isSeratoError(mismatched)).toBe(true);
+    if (isSeratoError(mismatched)) {
+      expect(mismatched.error.details?.problems).toEqual([
+        `container ${r.applied[0].container_id} reads back 1 tracks`,
+      ]);
+    }
+  });
+
+  it("returns an error, never null, when the root cannot be read back", () => {
+    const { input, rootPath } = setup();
+    writeFileSync(rootPath, "not a database ".repeat(300));
+    const r = verifyCommitted(input([]), {
+      applied: [{ staged_id: "s1", name: "A", container_id: 4, track_count: 1 }],
+      revision: ROOT_BASE_REVISION + 1,
+      warnings: [],
+    });
+    expect(isSeratoError(r)).toBe(true);
+    if (isSeratoError(r)) expect(r.error.code).toBe("write_failed_committed_unverified");
   });
 });
