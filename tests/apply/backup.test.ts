@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { backupLibrary, MAX_BACKUPS } from "../../src/apply/backup.js";
@@ -26,6 +26,35 @@ describe("backupLibrary", () => {
     copy.close();
     expect(ok).toEqual({ integrity_check: "ok" });
     expect(n).toEqual({ n: 1 });
+  });
+
+  // A real master.sqlite is WAL, and its newest rows can live only in -wal.
+  // The backup must carry them, and must be exactly two files a user can copy
+  // back -- no sidecars left over from checking the copy.
+  it("backs up a WAL master with rows only in its -wal, and leaves no sidecars beside the copy", async () => {
+    const lib = tmp();
+    const { masterPath } = makeLibraryFixture(lib, {
+      tracks: [{ externalId: 1, portableId: "Users/x/a.flac", name: "A" }],
+    });
+    const writer = new DatabaseSync(masterPath);
+    writer.exec("PRAGMA journal_mode = WAL");
+    writer.exec("PRAGMA wal_autocheckpoint = 0");
+    writer
+      .prepare(
+        "INSERT INTO asset (location_id, external_id, portable_id, file_name, name, name_norm) SELECT location_id, 2, 'Users/x/b.flac', 'b.flac', 'B', 'b' FROM asset LIMIT 1",
+      )
+      .run();
+    try {
+      const r = await backupLibrary(lib, tmp(), "lib000000001");
+      if (isSeratoError(r)) throw new Error(`unexpected error: ${r.error.message}`);
+      expect(readdirSync(dirname(r.master)).sort()).toEqual(["master.sqlite", "root.sqlite"]);
+      const copy = new DatabaseSync(r.master, { readOnly: true });
+      const n = copy.prepare("SELECT count(*) AS n FROM asset").get();
+      copy.close();
+      expect(n).toEqual({ n: 2 });
+    } finally {
+      writer.close();
+    }
   });
 
   // Fail-closed (spec 5.1.4): the backup is the only way back, so no backup

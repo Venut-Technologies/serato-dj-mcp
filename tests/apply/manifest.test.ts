@@ -94,4 +94,15 @@ describe("manifest", () => {
   it("reads an absent manifest as empty -- its absence is not an error (spec 5.6)", () => {
     expect(readManifest(tmp(), "lib000000001")).toEqual([]);
   });
+
+  // Valid JSON of the wrong shape gets past JSON.parse and fails inside the
+  // transform instead. After COMMIT that must still be a value, not a throw.
+  it("returns an error value, never a throw, for a line that parses but has the wrong shape", () => {
+    const state = tmp();
+    const path = manifestPath(state, "lib000000001");
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, '{"op_id":"op1"}\n');
+    const r = markCommitted(state, "lib000000001", "op1", new Map());
+    expect(isSeratoError(r) && r.error.details?.stage).toBe("manifest");
+  });
 });

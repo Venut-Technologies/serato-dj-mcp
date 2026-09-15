@@ -69,6 +69,11 @@ export async function backupLibrary(
     } finally {
       copy.close();
     }
+    // A read-only connection writes no frames, so any -wal/-shm beside the
+    // copy is only an artifact of the check above, not real content: dropped
+    // so the backup is exactly the two files a user can copy back.
+    rmSync(`${paths.master}-wal`, { force: true });
+    rmSync(`${paths.master}-shm`, { force: true });
   } catch (e) {
     rmSync(dir, { recursive: true, force: true });
     return failed(`cannot back up master.sqlite: ${String(e)}`);

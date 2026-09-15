@@ -66,9 +66,11 @@ function rewrite(
 
 /**
  * Every change is read, modify, rewrite. readManifest throws on a damaged
- * line, and that has to come back as a value here: markCommitted runs after
- * COMMIT, and a throw there would fail a call whose write succeeded -- inviting
- * a retry that the name-conflict check then refuses.
+ * line, and change() can throw too on a line that parses but has the wrong
+ * shape (e.g. missing crates) -- both have to come back as a value here:
+ * markCommitted runs after COMMIT, and a throw there would fail a call whose
+ * write succeeded -- inviting a retry that the name-conflict check then
+ * refuses.
  */
 function update(
   stateDir: string,
@@ -77,14 +79,18 @@ function update(
 ): true | SeratoError {
   let entries: ManifestEntry[];
   try {
-    entries = readManifest(stateDir, libraryId);
+    entries = change(readManifest(stateDir, libraryId));
   } catch (e) {
-    return err("write_failed_not_committed", `the manifest is unreadable: ${String(e)}`, {
-      stage: "manifest",
-      path: manifestPath(stateDir, libraryId),
-    });
+    return err(
+      "write_failed_not_committed",
+      `the manifest is unreadable or damaged: ${String(e)}`,
+      {
+        stage: "manifest",
+        path: manifestPath(stateDir, libraryId),
+      },
+    );
   }
-  return rewrite(stateDir, libraryId, change(entries));
+  return rewrite(stateDir, libraryId, entries);
 }
 
 /** Written BEFORE BEGIN (spec 5.1.5), so a crash between BEGIN and COMMIT
