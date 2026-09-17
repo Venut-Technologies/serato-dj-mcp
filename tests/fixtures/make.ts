@@ -294,3 +294,122 @@ export function makeMasterFixture(
   db.close();
   return path;
 }
+
+/**
+ * The ids the live root.sqlite gives its anchors (measured 2026-09-14): the
+ * Serato Library space is 2 and its root container is 3. They differ from
+ * master.sqlite's numbering on purpose -- spec 2.2: identity does not carry
+ * across the two databases, which is why every write resolves anchors and
+ * tracks dynamically instead of trusting an id.
+ */
+export const ROOT_SPACE_ID = 2;
+export const ROOT_ANCHOR_CONTAINER_ID = 3;
+const ROOT_STEMS_SPACE_ID = 1;
+const ROOT_STEMS_CONTAINER_ID = 1;
+/** Every seeded row sits at this revision, so no trigger fires during
+ *  seeding -- they only assign when space.revision < serato.revision. */
+export const ROOT_BASE_REVISION = 10;
+
+export function makeRootFixture(
+  dir: string,
+  opts: {
+    tracks?: TrackSeed[];
+    crates?: { name: string; trackPortableIds: string[] }[];
+    revision?: number;
+  } = {},
+): string {
+  const path = join(dir, "root.sqlite");
+  const rev = opts.revision ?? ROOT_BASE_REVISION;
+  const db = new DatabaseSync(path);
+  db.exec(readFileSync(join(HERE, "schema", "root-202.sql"), "utf8"));
+
+  db.prepare("INSERT INTO serato (time_created, revision) VALUES (?, ?)").run(1_700_000_000, rev);
+  db.prepare(
+    "INSERT INTO dbv2_status (last_import_revision, last_export_revision) VALUES (?, ?)",
+  ).run(0, rev);
+  // root.master.last_sync_secret is a 64-bit value on the live file that does
+  // not fit a JavaScript number; the fixture uses a small one, and nothing in
+  // src/ reads that table at all (spec 5.4 forbids touching it).
+  db.prepare(
+    "INSERT INTO master (uuid, revision, last_sync_time, last_sync_secret) VALUES (?, 1, 0, 0)",
+  ).run(Buffer.alloc(16, 1));
+
+  const space = db.prepare("INSERT INTO space (id, name, revision) VALUES (?, ?, ?)");
+  space.run(ROOT_STEMS_SPACE_ID, "Stems", rev);
+  space.run(ROOT_SPACE_ID, "Serato Library", rev);
+
+  const container = db.prepare(
+    `INSERT INTO container (id, revision, parent_id, name, type, list_order, space_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  );
+  // The synthetic root first: every space root's parent_id references it.
+  container.run(0, 0, null, "root", 0, 0, null);
+  container.run(ROOT_STEMS_CONTAINER_ID, 1, 0, "Stems root", 0, 2, ROOT_STEMS_SPACE_ID);
+  container.run(ROOT_ANCHOR_CONTAINER_ID, 2, 0, "Serato Library root", 0, 1, ROOT_SPACE_ID);
+
+  const asset = db.prepare(
+    "INSERT INTO asset (revision, portable_id, file_name, name, artist) VALUES (?, ?, ?, ?, ?)",
+  );
+  const spaceAsset = db.prepare("INSERT INTO space_asset (asset_id, space_id) VALUES (?, ?)");
+  const spaceAssetByPortableId = new Map<string, number>();
+  for (const t of opts.tracks ?? []) {
+    const a = asset.run(
+      rev,
+      t.portableId,
+      t.portableId.split("/").pop() ?? t.portableId,
+      t.name,
+      t.artist ?? "",
+    );
+    const sa = spaceAsset.run(a.lastInsertRowid, ROOT_SPACE_ID);
+    spaceAssetByPortableId.set(t.portableId, Number(sa.lastInsertRowid));
+  }
+
+  let listOrder = 1;
+  for (const crate of opts.crates ?? []) {
+    listOrder += 1;
+    const c = db
+      .prepare(
+        "INSERT INTO container (revision, parent_id, name, type, list_order, space_id) VALUES (?, ?, ?, 1, ?, ?)",
+      )
+      .run(rev, ROOT_ANCHOR_CONTAINER_ID, crate.name, listOrder, ROOT_SPACE_ID);
+    let order = 0;
+    for (const portableId of crate.trackPortableIds) {
+      const sa = spaceAssetByPortableId.get(portableId);
+      if (sa === undefined)
+        throw new Error(`root crate ${crate.name} references unknown ${portableId}`);
+      order += 1;
+      db.prepare(
+        "INSERT INTO container_asset (revision, container_id, space_asset_id, list_order) VALUES (?, ?, ?, ?)",
+      ).run(rev, c.lastInsertRowid, sa, order);
+    }
+  }
+
+  db.close();
+  return path;
+}
+
+/**
+ * master.sqlite and root.sqlite side by side, as a real library directory
+ * holds them, with the same tracks joined by portable_id. The write tools
+ * need both: stage_crate reads master's snapshot, apply_changes writes root.
+ */
+export function makeLibraryFixture(
+  dir: string,
+  opts: { tracks?: TrackSeed[]; crates?: CrateSeed[] } = {},
+): { masterPath: string; rootPath: string } {
+  const masterPath = makeMasterFixture(dir, { tracks: opts.tracks, crates: opts.crates });
+  const byExternalId = new Map((opts.tracks ?? []).map((t) => [t.externalId, t.portableId]));
+  const rootPath = makeRootFixture(dir, {
+    tracks: opts.tracks,
+    crates: (opts.crates ?? []).map((c) => ({
+      name: c.name,
+      trackPortableIds: c.trackExternalIds.map((id) => {
+        const p = byExternalId.get(id);
+        if (p === undefined)
+          throw new Error(`crate ${c.name} references unknown external_id ${id}`);
+        return p;
+      }),
+    })),
+  });
+  return { masterPath, rootPath };
+}

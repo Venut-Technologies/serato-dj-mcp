@@ -126,15 +126,31 @@ describe("server", () => {
     ]);
   });
 
-  it("registers no write tools in P1 even with --allow-writes", () => {
-    const s = createServer(cli({ allowWrites: true }));
-    expect(registeredToolNames(s).sort()).toEqual([
+  // Registration depends only on the flag, not on what the library holds --
+  // the fixture here is the bare makeMasterFixture with no tracks or crates.
+  it("registers the four write tools only with --allow-writes", () => {
+    const without = createServer(cli());
+    expect(registeredToolNames(without).sort()).toEqual([
       "audit_library",
       "get_crate_tracks",
       "get_tracks",
       "list_crates",
       "list_libraries",
       "search_tracks",
+    ]);
+
+    const s = createServer(cli({ allowWrites: true }));
+    expect(registeredToolNames(s).sort()).toEqual([
+      "apply_changes",
+      "audit_library",
+      "discard_changes",
+      "get_crate_tracks",
+      "get_tracks",
+      "list_crates",
+      "list_libraries",
+      "preview_changes",
+      "search_tracks",
+      "stage_crate",
     ]);
   });
 

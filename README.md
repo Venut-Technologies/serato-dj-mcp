@@ -1,6 +1,6 @@
 # serato-dj-mcp
 
-MCP server for the Serato DJ 4.x library. Read-only in this build.
+MCP server for the Serato DJ 4.x library. Reads always; creates crates with --allow-writes.
 
 > Not affiliated with Serato. This project reads a reverse-engineered SQLite
 > layout and can stop working after any Serato update.
@@ -49,12 +49,60 @@ protocol travels over stdout.
 - `run_sql` — one read-only `SELECT` against a snapshot copy. Registered only
   with `--allow-raw-sql`, because it returns raw rows with no path redaction.
 
+With `--allow-writes`:
+
+- `stage_crate` — stage a new crate from track ids. Nothing is written yet; the response lists
+  every staged track by title and artist, so check it.
+- `preview_changes` — show what is staged, with `format: "detail"` down to each track.
+- `apply_changes` — write everything staged, all or nothing. Refused while Serato is running.
+- `discard_changes` — drop one staged crate, or all of them.
+
 ## Options
 
 `--library <path>`, `--root <dir>` (repeatable), `--cache-dir <dir>`,
 `--state-dir <dir>`, `--allow-raw-sql`, `--allow-writes`, `--help`,
 `--version`. `SERATO_LIBRARY_PATH` is an alternative to `--library`;
 the flag wins. An unknown option is an error, not a no-op.
+
+## Writing to the library
+
+Writes need `--allow-writes` and happen in two steps, because Serato must be closed while its
+database is written and the model usually works while it is open. `stage_crate` can run at any
+time; `apply_changes` refuses while Serato is running. Start Serato afterwards and the new crates
+appear within a few seconds.
+
+What a write does: it creates new crates at the top level of the Serato Library, in
+`root.sqlite`, and nothing else. It never changes or deletes an existing crate, never edits a
+track, never touches `master.sqlite`, `database V2` or the `Subcrates` folder — Serato regenerates
+those itself.
+
+Before every write both databases are backed up under
+`<state-dir>/backups/<library-id>/<timestamp>/` (default state-dir:
+`~/Library/Application Support/serato-dj-mcp`), and the last ten are kept. A backup is taken on
+every `apply_changes` attempt that reaches the backup step, including attempts that are then
+refused inside the transaction (a name conflict, for example) — so "the last ten" means the last
+ten *attempts*, not ten successful writes, and the newest one may already contain the write you
+are trying to undo.
+
+**There is no undo tool.** To undo a specific write, first find the right backup: use the
+`backup_paths` returned by that `apply_changes` call, or open
+`<state-dir>/manifests/<library-id>.jsonl` and take the `backup_paths` of the line whose
+`"commit_state"` is `"committed"`. `<library-id>` is the `uuid` reported by `list_libraries`. Then,
+with that pair of paths in hand:
+
+1. Quit Serato.
+2. In the library folder, delete `root.sqlite-journal` if present, and delete
+   `master.sqlite-wal` and `master.sqlite-shm`.
+3. Copy the backed-up `root.sqlite` and `master.sqlite` into the library folder, replacing the
+   current ones.
+4. Delete `~/Music/_Serato_/Subcrates/<crate name>.crate` — Serato exported it after it synced
+   the crate, and copying the databases back does not remove it.
+
+Restoring these files also rolls back anything Serato itself recorded in the library after that
+backup was taken.
+
+Nested crates are not supported: a crate created this way inside another crate is deleted by
+Serato when it next syncs, so every crate goes to the top level.
 
 ## Limitations
 
@@ -71,7 +119,6 @@ Read this before deciding what to trust.
   seconds, so while Serato is writing an answer can be that far behind. Only
   the current snapshot of each library is kept in `--cache-dir`; older ones
   are deleted as soon as a newer one is published.
-- **No write tools exist in this build.**
 - **Two audit checks rest on column semantics this project has not confirmed.** `stale` reads
   `is_stale` and `streaming_only` reads `third_party_type`; both were zero on every track of the
   reference library, so their counts are reported without any claim about what they mean.

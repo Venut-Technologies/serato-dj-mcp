@@ -15,7 +15,7 @@ Usage: serato-dj-mcp [options]
   --cache-dir <dir>    Where snapshots go (safe to delete)
   --state-dir <dir>    Where backups and manifests go (NOT safe to delete)
   --allow-raw-sql      Register run_sql
-  --allow-writes       Register the write tools (none exist yet in this build)
+  --allow-writes       Register stage_crate, preview_changes, apply_changes, discard_changes
   -h, --help           Show this help
   -V, --version        Show the version
 
@@ -39,8 +39,11 @@ if ("version" in parsed) {
 }
 
 // Everything diagnostic goes to stderr: stdout carries the MCP protocol.
+const flags: string[] = [];
+if (parsed.allowWrites) flags.push("writes enabled");
+if (parsed.allowRawSql) flags.push("raw sql enabled");
 process.stderr.write(
-  `serato-dj-mcp ${VERSION} on stdio (read-only${parsed.allowRawSql ? ", raw sql enabled" : ""})\n`,
+  `serato-dj-mcp ${VERSION} on stdio (${flags.length > 0 ? flags.join(", ") : "read-only"})\n`,
 );
 
 await createServer(parsed).connect(new StdioServerTransport());
