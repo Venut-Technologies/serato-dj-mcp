@@ -31,8 +31,9 @@ and the build, typecheck and package check on Linux.
 - Do not commit real Serato databases (`master.sqlite`, `root.sqlite`, `location.sqlite`,
   `database V2`), crate files, logs, or anything copied out of a real library — including track
   titles, file paths and user names.
-- Tests build their libraries from synthetic fixtures in `tests/fixtures/`. Add what you need
-  there, with invented data.
+- Tests build their libraries from the fixtures in `tests/fixtures/`: a database with the same
+  schema a Serato 4.x library has, the identifiers in it synthetic, and every row inserted by the
+  test that needs it. Add what you need there, with invented data.
 - `.local-fixtures/` is ignored by git on purpose. Keep private experiments there.
 
 ## Code
