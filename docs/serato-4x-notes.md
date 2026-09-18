@@ -63,6 +63,10 @@ to a working library, it was backed up byte for byte first and restored afterwar
   `EPERM` result means the process exists and belongs to another user — together with the process
   name from `ps -o comm=`, which on macOS prints the full executable path rather than a bare
   name.
+- Reading `root.sqlite` while Serato is running was measured on a working library on 2026-09-16:
+  three consecutive stagings of 50 tracks each took 8 to 41 ms, and Serato's own log for those
+  seconds carried no `SQLITE_BUSY`, no "database is locked" and no I/O error. Three short reads
+  are not a load test, but they are what this server does.
 
 ## WAL behaviour
 

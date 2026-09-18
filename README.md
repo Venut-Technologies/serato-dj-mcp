@@ -244,8 +244,9 @@ Read this before deciding what to trust.
 - **Serato must be closed to apply, and restarted to see the result.** New crates show up in
   Serato, and in this server's read tools, only after Serato has started and synced.
 - **Staging reads Serato's live database.** `stage_crate` reads `root.sqlite` while Serato may be
-  running. The reads are short and read-only, but their effect on a running Serato has not been
-  measured yet.
+  running. Measured on 2026-09-16: three stagings of 50 tracks each, 8 to 41 ms apiece, with
+  nothing in Serato's own log for those seconds. That is evidence, not a guarantee — a busier
+  library, or a Serato in the middle of its own write, has not been tried.
 - **There is no undo tool.** Undoing a write means restoring the backups by hand, as described
   above.
 

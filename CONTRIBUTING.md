@@ -65,9 +65,17 @@ Anything that can modify Serato's files needs extra care:
 
 ## Releasing (maintainers)
 
+Nobody publishes from a laptop: pushing the tag is the whole release, and
+`.github/workflows/release.yml` does the rest.
+
 1. Make sure `main` is green in CI.
-2. Move the *Unreleased* entries in `CHANGELOG.md` under the new version and date.
-3. Bump `version` in `package.json`.
-4. Check the tarball: `npm pack --dry-run` should list `dist/`, `README.md`, `LICENSE` and
-   `package.json` only.
-5. Tag the release, publish to npm, and create the GitHub release from the changelog entry.
+2. In one commit titled `Release X.Y.Z`, and nothing else in it: move the *Unreleased* entries in
+   `CHANGELOG.md` under the new version with today's date, open a fresh empty *Unreleased*, and
+   set `version` in `package.json` (and its lockfile) to the same number.
+3. Push that commit and wait for CI.
+4. Push the annotated tag `vX.Y.Z`, whose message is the first line of the changelog entry.
+5. The workflow checks the tag against `package.json`, runs lint, typecheck, tests and build on
+   the tagged commit, verifies the tarball, creates the GitHub Release with the changelog entry
+   as its body, and publishes to npm with provenance.
+6. If the workflow is red, the release has not happened: delete the tag and fix forward, rather
+   than moving the tag.
