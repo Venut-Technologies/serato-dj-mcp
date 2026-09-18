@@ -78,7 +78,7 @@ export function detectLibrary(dir: string): LibraryInfo | null {
  * so a caller that already has a successful LibraryInfo[] (so discover()
  * itself has no error to attach `searched` to) can still report where it
  * looked. `searched` is mandatory on library_not_found, and that stays true
- * just because *some* location, even an unusable one (e.g. a 3.x library),
+ * even when *some* location, even an unusable one (e.g. a 3.x library),
  * was found.
  */
 export function searchLocations(opts: { library?: string; roots?: string[] }): string[] {

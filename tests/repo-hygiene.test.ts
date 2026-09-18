@@ -24,9 +24,10 @@ const tracked = execFileSync("git", ["ls-files", "-z"], { cwd: ROOT, encoding: "
   .filter((p) => p !== "");
 
 // This file's own path, as `tracked` spells it (git ls-files always uses
-// "/"). Its source quotes the very patterns and allowed values the rules
-// below look for, so the pattern-bearing rules skip it rather than lean on
-// incidental non-matches.
+// "/"). Its source quotes the citation patterns the citation rules look
+// for, in the comments explaining them, so only those rules skip it. A real
+// identifier or path here would be exactly the kind of leak the identifier
+// and path rules exist to catch, so they scan this file like any other.
 const SELF_PATH = relative(ROOT, fileURLToPath(import.meta.url));
 
 /** The file's text, or null if it isn't text (a NUL byte says binary). */
@@ -36,13 +37,11 @@ function readTextOrNull(path: string): string | null {
 }
 
 /**
- * Visits every scannable line of every tracked file except this one -- the
- * pattern-bearing rules all read through this, so none of them has to
- * repeat the binary/self-file skip.
+ * Visits every scannable line of every tracked file, this one included --
+ * the identifier and path rules read through this.
  */
 function forEachLine(visit: (path: string, lineNo: number, line: string) => void): void {
   for (const path of tracked) {
-    if (path === SELF_PATH) continue;
     const text = readTextOrNull(path);
     if (text === null) continue; // binary: not scanned as text
     text.split("\n").forEach((line, i) => {
@@ -51,10 +50,29 @@ function forEachLine(visit: (path: string, lineNo: number, line: string) => void
   }
 }
 
+/**
+ * Visits every scannable line of every tracked file except this one -- only
+ * the citation rules read through this (see SELF_PATH above).
+ */
+function forEachLineExceptSelf(visit: (path: string, lineNo: number, line: string) => void): void {
+  forEachLine((path, lineNo, line) => {
+    if (path !== SELF_PATH) visit(path, lineNo, line);
+  });
+}
+
 /** Hits with the file and line, so a failure says where to look. */
 function hits(pattern: RegExp): string[] {
   const found: string[] = [];
   forEachLine((path, lineNo, line) => {
+    for (const m of line.matchAll(pattern)) found.push(`${path}:${lineNo}: ${m[0]}`);
+  });
+  return found;
+}
+
+/** Like `hits`, but over `forEachLineExceptSelf` -- for the citation rules. */
+function hitsExceptSelf(pattern: RegExp): string[] {
+  const found: string[] = [];
+  forEachLineExceptSelf((path, lineNo, line) => {
     for (const m of line.matchAll(pattern)) found.push(`${path}:${lineNo}: ${m[0]}`);
   });
   return found;
@@ -129,12 +147,15 @@ describe("repository hygiene", () => {
   // a bare "the spec" naming OUR OWN document with no article-less name in
   // front of it -- "the MCP spec" or "the MCP specification" still reads
   // fine, since "spec"/"specification" there is qualified by a real,
-  // public name instead of standing in for one.
+  // public name instead of standing in for one. The one literal alternative,
+  // ПОПРАВКА, is the marker the internal documents used for an amendment;
+  // nothing in the tree matches it today, but it costs nothing to keep
+  // watching for.
   const INTERNAL_REFERENCE =
     /\b[Ss][Pp][Ee][Cc]\s\d+(?:\.\d+)*|\b[Rr][Uu][Ll][Ii][Nn][Gg]\s\d+|\b[Dd][Ee][Cc][Ii][Ss][Ii][Oo][Nn]\s\d+|\b[Aa][Mm][Ee][Nn][Dd][Mm][Ee][Nn][Tt]\s\d+|\b[Pp][1-4]\s+[Rr][Ee][Vv][Ii][Ee][Ww]\b|\b[Rr][Ee][Vv][Ii][Ee][Ww]\b\s+[Oo][Ff]\s+[Pp][1-4]\b|\b[Rr][Ee][Vv][Ii][Ee][Ww]\b[^\n]{0,24}[Ff][Ii][Nn][Dd][Ii][Nn][Gg]\s\d+|\b[Ff][Ii][Nn][Dd][Ii][Nn][Gg]\s\d+\b|\b[Tt]he\s+[Ss]pec\b|\b[Tt]ask\s\d+(?:'s)?\s+[Rr]eview\b|\bper\s+[A-Z]\d{1,2}\b|ПОПРАВКА/g;
 
   it("points at no internal document from tracked source", () => {
-    const found = hits(INTERNAL_REFERENCE).filter(
+    const found = hitsExceptSelf(INTERNAL_REFERENCE).filter(
       (h) => h.startsWith("src/") || h.startsWith("tests/"),
     );
     expect(found).toEqual([]);

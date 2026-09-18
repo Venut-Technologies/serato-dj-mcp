@@ -48,7 +48,7 @@ export const FIELD_SPECS: Record<string, FieldSpec> = {
   streaming: { candidates: ["third_party_type"], sql: (c) => `a.${c} <> 0`, map: toBoolean },
   // analysis_flags & 4 means "Serato ran its own analysis", which is NOT the
   // same as "has a BPM" -- a BPM can come from the file's tags. Measured
-  // 2026-09-06 on 118 tracks: 104 of 106 agree, and the twelve that differ
+  // 2026-09-06 on 118 tracks: 94 of 106 agree, and the twelve that differ
   // are six sound effects and six tracks whose BPM came from tags.
   analyzed: { candidates: ["analysis_flags"], sql: (c) => `(a.${c} & 4) <> 0`, map: toBoolean },
   path: {

@@ -211,11 +211,10 @@ describe("stage_crate", () => {
     expect(stage.crates.map((c) => c.name)).toEqual(["A"]);
   });
 
-  // The try/catch that maps a thrown error from reading root.sqlite to
-  // busy/root_unreadable must not also wrap the
-  // write-lock section. A bug there (simulated by making saveStage throw
-  // instead of returning a SeratoError) must propagate to readSession's own
-  // handler, not come back mislabelled as a root.sqlite problem.
+  // The try/catch that maps a thrown error from reading root.sqlite to busy/root_unreadable must
+  // not also wrap the write-lock section. A bug there (simulated by making saveStage throw
+  // instead of returning a SeratoError) must propagate to readSession's own handler, not come
+  // back mislabelled as a root.sqlite problem.
   it("does not mislabel a bug in the stage section as a root.sqlite problem", async () => {
     const { ctx } = library();
     const ids = await idsByTitle(ctx);

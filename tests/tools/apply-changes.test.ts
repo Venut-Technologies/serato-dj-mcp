@@ -167,10 +167,9 @@ describe("apply_changes", () => {
     expect(readdirSync(ctx.stateDir)).not.toContain("backups");
   });
 
-  // The stage must be read only after the lock is held, by the same call
-  // that will clear it -- proven here by making the stage
-  // unreadable and showing that a held lock reports busy rather than reading
-  // (and reporting on) that corruption.
+  // The stage must be read only after the lock is held, by the same call that will clear it --
+  // proven here by making the stage unreadable and showing that a held lock reports busy rather
+  // than reading (and reporting on) that corruption.
   it("reports busy rather than reading a corrupted stage when the lock is held", async () => {
     const { ctx, libraryId, crates } = await stagedLibrary();
     writeFileSync(stagePath(ctx.stateDir, libraryId), "{not json");
@@ -251,13 +250,11 @@ describe("apply_changes", () => {
     expect(crates().map((c) => c.name)).toEqual(["Gigs 2026"]);
   });
 
-  // A4: markCommitted's own failure must still surface as a warning on an
-  // otherwise successful apply. The probe is consulted inside the
-  // transaction too, a second check after the one that refuses before the
-  // backup, by which point writeIntent has already created the manifest
-  // file -- corrupting it there, but not
-  // before, simulates the manifest becoming unwritable between intent and
-  // commit without ever failing writeIntent itself.
+  // A4: markCommitted's own failure must still surface as a warning on an otherwise successful
+  // apply. The probe is consulted inside the transaction too, a second check after the one that
+  // refuses before the backup, by which point writeIntent has already created the manifest file
+  // -- corrupting it there, but not before, simulates the manifest becoming unwritable between
+  // intent and commit without ever failing writeIntent itself.
   it("A4: emits manifest_not_updated and still clears the stage when markCommitted fails", async () => {
     const { ctx, masterPath, libraryId, crates } = await stagedLibrary();
     lockRow(masterPath);

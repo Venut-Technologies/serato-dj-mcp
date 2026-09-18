@@ -17,17 +17,14 @@ import { type ReadCtx, readSession, schemaWarnings } from "../read/session.js";
 import { keysetPredicate, parseSort, SORT_FIELDS, sortExpressions } from "../read/sort.js";
 
 /**
- * Bounds on model-supplied strings and arrays that feed straight into SQL
- * text or parameter lists. Uncapped, `q`
- * builds one ten-clause OR group per whitespace token, ANDed together:
- * measured at 988 tokens that all match up to the last, the query itself ran
- * for tens of seconds with no way to interrupt it (node:sqlite is
- * synchronous); at 989 tokens SQLite's prepare() throws "Expression tree is
- * too large (maximum depth 1000)", which readSession's outer catch turns
- * into `snapshot_failed` -- telling the model the snapshot copy is broken
- * rather than that its argument was too big. Twelve tokens covers any real
- * search and stays far enough below 988 that the second failure mode is
- * unreachable.
+ * Bounds on model-supplied strings and arrays that feed straight into SQL text or parameter
+ * lists. Uncapped, `q` builds one ten-clause OR group per whitespace token, ANDed together:
+ * measured at 988 tokens that all match up to the last, the query itself ran for tens of
+ * seconds with no way to interrupt it (node:sqlite is synchronous); at 989 tokens SQLite's
+ * prepare() throws "Expression tree is too large (maximum depth 1000)", which readSession's
+ * outer catch turns into `snapshot_failed` -- telling the model the snapshot copy is broken
+ * rather than that its argument was too big. Twelve tokens covers any real search and stays far
+ * enough below 988 that the second failure mode is unreachable.
  */
 const MAX_Q_LENGTH = 512;
 const MAX_Q_TOKENS = 12;
