@@ -7,7 +7,7 @@ Serato's own documentation or source — it is what we saw the files and the pro
 ## Two databases
 
 - `master.sqlite` (WAL mode) is the aggregate database the Serato GUI opens. It is the only one
-  of the two that has a `lock` table, the history tables, and every track's location.
+  of the two that has a `lock` table, the history tables, and every location.
 - `root.sqlite` (rollback journal, journal mode DELETE) is the boot disk's own store. It is the
   only file this server writes to.
 - Serato opens `root.sqlite` attached under the name `db1`, which is why its own triggers are
@@ -44,7 +44,7 @@ Serato's own documentation or source — it is what we saw the files and the pro
 
 ## Is Serato running
 
-- The `lock` table has no primary key, and its row survives an unclean exit: a row for pid 73438
+- The `lock` table has no key, and its row survives an unclean exit: a row for pid 73438
   stayed for ten days after that process was killed.
 - Liveness therefore has to be confirmed against the operating system: `kill(pid, 0)` — where an
   `EPERM` result means the process exists and belongs to another user — together with the process
