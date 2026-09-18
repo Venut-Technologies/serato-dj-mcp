@@ -46,7 +46,9 @@ const RUNTIME_FUNCTION_TRIGGERS = [
   "after_history_entry_update",
 ];
 
-/** Uuid of the boot-disk location, mirrored by root.sqlite's serato_db view. */
+/** Uuid of the boot-disk location. Deliberately the same synthetic value as
+ *  root.sqlite's serato_db view (tests/fixtures/schema/root-202.sql), which
+ *  this fixture is standing in for. */
 const LOCATION_UUID = Buffer.from("22222222222222222222222222222222", "hex");
 const LOCATION_ID = 2;
 

@@ -29,6 +29,10 @@ function hits(pattern: RegExp): string[] {
   return found;
 }
 
+// The only two database identifiers a tracked file may carry, in bare hex.
+// Both identifier rules below derive their allowed form from this one list.
+const SYNTHETIC_IDS = ["11111111111111111111111111111111", "22222222222222222222222222222222"];
+
 describe("repository hygiene", () => {
   it("tracks no file list of its own that git does not know about", () => {
     // Guards the guard: an empty tracked list would make every rule vacuous.
@@ -39,12 +43,20 @@ describe("repository hygiene", () => {
   // schema needs are synthetic and declared here; anything else is the
   // owner's own library leaking into a public file.
   it("carries no database identifier but the synthetic ones", () => {
-    const allowed = new Set([
-      "X'11111111111111111111111111111111'",
-      "X'22222222222222222222222222222222'",
-    ]);
+    const allowed = new Set(SYNTHETIC_IDS.map((id) => `X'${id}'`));
     const found = hits(/X'[0-9a-fA-F]{16,}'/g).filter(
       (h) => !allowed.has(h.slice(h.indexOf("X'"))),
+    );
+    expect(found).toEqual([]);
+  });
+
+  // The same identifier can leak outside a blob literal too -- a bare hex
+  // string handed to Buffer.from(hex), for instance. Kept as its own rule so
+  // a failure says which form slipped through.
+  it("carries no database identifier as a bare hex run either", () => {
+    const allowed = new Set(SYNTHETIC_IDS);
+    const found = hits(/\b[0-9a-f]{32}\b/gi).filter(
+      (h) => !allowed.has(h.slice(-32).toLowerCase()),
     );
     expect(found).toEqual([]);
   });
