@@ -1,8 +1,15 @@
 # What we measured about the Serato DJ 4.x library
 
-These are observations from Serato DJ Lite 4.0.9, with library schema 202, on macOS. Every
-number below was measured on a real library or on a copy of one. Nothing here comes from
-Serato's own documentation or source — it is what we saw the files and the process do.
+These are observations from Serato DJ Lite 4.0.9, with library schema 202, on macOS. Nothing
+here comes from Serato's own documentation or source — it is what we saw the files and the
+process do.
+
+Every measurement says which library it was taken on, because the two are not equally strong
+evidence. **A working library** is one Serato actually uses, with its own tracks and crates: a
+measurement there is the real thing, and the only way to see Serato itself react to a write.
+**A disposable copy** is a byte copy of that whole library folder, written to instead of the
+original: safe, and enough for anything that does not need Serato running. Where a write was made
+to a working library, it was backed up byte for byte first and restored afterwards.
 
 ## Two databases
 
@@ -28,10 +35,10 @@ Serato's own documentation or source — it is what we saw the files and the pro
 - `container` carries a UNIQUE constraint on `(parent_id, name COLLATE NOCASE, type)`, so
   `sErAtO dEmO tRaCkS` collides with `Serato Demo Tracks`.
 - `container_asset` has no unique constraint on `(container_id, space_asset_id)`.
-- A crate nested inside another crate is deleted by Serato the next time it syncs — reproduced
-  twice.
-- An empty crate is deleted by Serato too: on 2026-09-16, a start of Serato logged
-  `Sync: Cleaned up 1 empty containers` and removed one.
+- A crate nested inside another crate is deleted by Serato the next time it syncs — written to a
+  working library and reproduced twice.
+- An empty crate is deleted by Serato too: on 2026-09-16, on a working library, a start of Serato
+  logged `Sync: Cleaned up 1 empty containers` and removed one.
 
 ## Revisions
 
@@ -42,8 +49,11 @@ Serato's own documentation or source — it is what we saw the files and the pro
 - A write must therefore bump `serato.revision` first, then insert the container row, then its
   `container_asset` rows. Done in the other order, the rows land in the file but Serato never
   shows them.
-- Measured on a real library on 2026-09-16: both counters moved 72 → 73, and the crate was
-  visible in the GUI after a restart.
+- Measured on a working library on 2026-09-16: both counters moved 72 → 73, and the crate was
+  visible in the Serato GUI after a restart.
+- The same write path, run twice on a disposable copy of that library the same day, moved
+  `serato.revision` 72 → 73 → 74 with the space revision following it each time. Serato was never
+  started against that copy, so it shows the write and not what Serato does with it.
 
 ## Is Serato running
 
@@ -65,8 +75,9 @@ Serato's own documentation or source — it is what we saw the files and the pro
 
 ## How a write becomes visible
 
-- Serato aggregates `root.sqlite` into `master.sqlite` on startup: measured at 3 seconds for a
-  five-track crate, and around 6 seconds in an earlier run.
+- Serato aggregates `root.sqlite` into `master.sqlite` on startup: on a working library, 3 seconds
+  for a five-track crate on 2026-09-16, and around 6 seconds in an earlier run on the same
+  library. A copy cannot show this, because it needs Serato to start against the library.
 - Serato then exports the legacy crate file itself, at `~/Music/_Serato_/Subcrates/<name>.crate`
   — 1456 bytes for that crate. This server never writes that file.
 - Serato's own log names each step of the process: `Sync: Added/Updated 5 container entries`,
