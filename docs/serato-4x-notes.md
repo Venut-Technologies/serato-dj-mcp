@@ -8,13 +8,16 @@ Serato's own documentation or source — it is what we saw the files and the pro
 
 - `master.sqlite` (WAL mode) is the aggregate database the Serato GUI opens. It is the only one
   of the two that has a `lock` table, the history tables, and every location.
-- `root.sqlite` (rollback journal, journal mode DELETE) is the boot disk's own store. It is the
-  only file this server writes to.
+- `root.sqlite` (rollback journal, journal mode DELETE) is the boot disk's own store. Of Serato's
+  own files, it is the only one this server writes to (via `apply_changes`); the server also
+  writes its own snapshot, stage, manifest, lock files and backups elsewhere (see README's
+  Privacy section).
 - Serato opens `root.sqlite` attached under the name `db1`, which is why its own triggers are
   declared `ON db1.<table>`. That trigger text cannot be executed against a fresh database opened
   as the main connection.
-- `master.sqlite`'s `last_sync_secret` column holds a value that does not fit in a JavaScript
-  number, so running `SELECT *` over the `master` table throws.
+- `root.sqlite` has its own `master` table (`master.sqlite` has no table by that name). Its
+  `last_sync_secret` column holds a value that does not fit in a JavaScript number (measured
+  2026-09-14), so running `SELECT *` over it throws.
 
 ## Crates
 

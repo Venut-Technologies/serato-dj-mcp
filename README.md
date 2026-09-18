@@ -216,10 +216,17 @@ Read this before deciding what to trust.
 - **Two audit checks rest on column semantics this project has not confirmed.** `stale` reads
   `is_stale` and `streaming_only` reads `third_party_type`; both were zero on every track of the
   reference library, so their counts are reported without any claim about what they mean.
-- **`rating`, the streaming flag and `analysis_flags` are passed through
-  uninterpreted.** On the reference library `rating` was NULL on all 19
-  tracks, and `analysis_flags` did not correlate with whether a track had been
-  analysed, so no meaning is claimed for them.
+- **`rating` and the streaming flag are passed through uninterpreted.** On
+  the reference library `rating` was NULL or 0 on all 118 tracks (measured
+  2026-09-06), so the top of the scale is unconfirmed; no meaning is claimed
+  for the streaming flag either.
+- **`analysis_flags` bit 2 is claimed, though the rest of the field is not.**
+  It is read as "Serato ran its own analysis" — not the same as "has a BPM",
+  since a BPM can come from the file's tags — and exposed as
+  `flags.analyzed`, which `search_tracks` can filter on. Measured 2026-09-06
+  on 118 tracks: 94 of 106 agreed with whether the track had a BPM, and the
+  twelve that differed were six sound effects and six tracks whose BPM came
+  from tags instead of Serato's own analysis.
 - **Free-text search is not Serato's search.** Serato normalises text with a function only
   its own process has, so `q` matches both the normalised columns and the raw ones and can
   differ from what the application would find.
