@@ -223,9 +223,9 @@ Read this before deciding what to trust.
   It is read as "Serato ran its own analysis" — not the same as "has a BPM",
   since a BPM can come from the file's tags — and exposed as
   `flags.analyzed`, which `search_tracks` can filter on. Measured 2026-09-06
-  on 118 tracks: 94 of 106 agreed with whether the track had a BPM, and the
-  twelve that differed were six sound effects and six tracks whose BPM came
-  from tags instead of Serato's own analysis.
+  on 118 tracks: 106 have bit 2 set, of which 104 have a BPM; twelve have it
+  clear — six sound effects and six tracks whose BPM came from tags rather
+  than Serato's own analysis.
 - **Free-text search is not Serato's search.** Serato normalises text with a function only
   its own process has, so `q` matches both the normalised columns and the raw ones and can
   differ from what the application would find.
