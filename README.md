@@ -248,6 +248,12 @@ Read this before deciding what to trust.
 - **There is no undo tool.** Undoing a write means restoring the backups by hand, as described
   above.
 
+## Principles
+
+What this server guarantees about your library, and what it refuses to do, is stated in
+[PRINCIPLES.md](PRINCIPLES.md) — each guarantee with the code that enforces it and the tests that
+would fail if it stopped being true.
+
 ## Security
 
 Please report vulnerabilities privately — see [SECURITY.md](SECURITY.md). Do not open a public

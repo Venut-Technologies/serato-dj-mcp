@@ -40,3 +40,7 @@ npm-debug.log*
 *.sqlite-shm
 *.crate
 database V2
+
+# Agent instructions live in the private governance repository (symlinked, never committed)
+AGENTS.md
+CLAUDE.local.md
