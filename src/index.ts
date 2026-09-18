@@ -3,8 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { parseArgs } from "./cli.js";
 import { isSeratoError } from "./errors.js";
 import { createServer } from "./server.js";
-
-const VERSION = "0.1.0";
+import { PACKAGE_VERSION as VERSION } from "./version.js";
 
 export const HELP = `serato-dj-mcp ${VERSION} -- MCP server for the Serato DJ 4.x library
 

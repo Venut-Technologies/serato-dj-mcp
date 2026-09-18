@@ -3,7 +3,8 @@
 [![CI](https://github.com/Venut-Technologies/serato-dj-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/Venut-Technologies/serato-dj-mcp/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Status: Experimental · Active · Pre-1.0**
+**Status: experimental.** Pre-1.0 and actively developed: a minor version may change
+behaviour or break compatibility, a patch never does.
 
 Talk to your Serato DJ library from an AI assistant. `serato-dj-mcp` is a local
 [Model Context Protocol](https://modelcontextprotocol.io) server that lets Claude, or any other MCP
@@ -43,7 +44,7 @@ only what you approved.
 | **macOS** | Supported. This is where the project is developed, and CI runs on it. |
 | **Windows** | Untested. The server has no Windows-specific handling: pass `--library` explicitly, because automatic discovery only knows the macOS layout, and expect macOS-style cache and state directories under your user folder. The "is Serato running" check uses `ps`, which Windows does not have, so `apply_changes` may refuse to write rather than guess. |
 | **Linux** | Serato does not run on Linux; the test suite runs there in CI on synthetic fixtures. |
-| **Node.js** | 22.16 or newer. |
+| **Node.js** | 22.16 or newer, because `backup()` from `node:sqlite` lands there. Not assumed: CI runs the whole suite on 22.16 and on 24, on macOS and on Ubuntu. |
 
 Everything this server assumes about the Serato library is written down in
 [docs/serato-4x-notes.md](docs/serato-4x-notes.md), with the measurement behind each claim.

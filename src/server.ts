@@ -69,8 +69,7 @@ import {
   stageCrateInput,
   stageCrateOutput,
 } from "./tools/stage-crate.js";
-
-const VERSION = "0.1.0";
+import { PACKAGE_VERSION as VERSION } from "./version.js";
 
 const RO = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
 

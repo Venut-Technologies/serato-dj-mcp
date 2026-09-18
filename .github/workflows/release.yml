@@ -1,0 +1,110 @@
+name: Release
+
+# Pushing a `vX.Y.Z` tag is what releases. The owner pushes the tag; everything
+# below happens here, never from a laptop. If this workflow is red on a tag,
+# the release has not happened: delete the tag rather than fixing it in place.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # create the GitHub Release
+  id-token: write # OIDC for npm trusted publishing and provenance
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      # The tag, not a branch: the artifact is built from exactly what was
+      # tagged, even if main has moved on since.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.16" # the floor package.json declares, and what CI proves
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      # Trusted publishing (OIDC, no token) needs npm 11.5 or newer, which is
+      # ahead of the npm bundled with Node 22.16.
+      - name: Use an npm that can publish with OIDC
+        run: |
+          npm install -g npm@latest
+          npm --version
+
+      - run: npm ci
+
+      # The tag says what this release is; package.json is what npm would
+      # publish, and src/version.ts reports it to every MCP client. A mismatch
+      # means the release commit was not the one tagged, so stop before
+      # anything is published or announced.
+      - name: The tag and package.json agree
+        id: version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p 'require("./package.json").version')"
+          if [ "$tag" != "$pkg" ]; then
+            echo "tag $GITHUB_REF_NAME says $tag, package.json says $pkg"
+            exit 1
+          fi
+          echo "version=$tag" >> "$GITHUB_OUTPUT"
+
+      # The same checks CI runs on every push, once more on the tagged commit.
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+      - name: The tarball carries dist/ and nothing from tests/
+        run: |
+          npm pack --dry-run 2>&1 | tee /tmp/pack.txt
+          grep -q "dist/index.js" /tmp/pack.txt || { echo "dist/ missing from the tarball"; exit 1; }
+          if grep -qE "tests/|fixtures/|\.local-fixtures/|docs/superpowers/" /tmp/pack.txt; then
+            echo "test files or private documents leaked into the tarball"; exit 1
+          fi
+
+      # Release notes are the changelog entry, copied verbatim -- never
+      # generated from commit titles. A version with no entry is a release
+      # nobody wrote notes for, so fail instead of publishing a blank one.
+      - name: Take this version's entry out of the changelog
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          awk -v v="$version" '
+            $0 ~ "^## \\[" v "\\]" { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > /tmp/notes.md
+          if [ ! -s /tmp/notes.md ]; then
+            echo "CHANGELOG.md has no entry for $version"
+            exit 1
+          fi
+          # The entry may use reference-style links ([#14]); their definitions
+          # live at the foot of the changelog. Without them the notes would
+          # render "[#14]" as plain text. Unused definitions render as nothing.
+          grep -E '^\[[^]]+\]: ' CHANGELOG.md >> /tmp/notes.md
+          cat /tmp/notes.md
+
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file /tmp/notes.md \
+            --verify-tag
+
+      # First publication only: npm cannot be told to trust this repository
+      # until the package exists, so this one runs on a token kept as the
+      # repository secret NPM_TOKEN. Right after the first release, configure
+      # the package for trusted publishing on npmjs.com, then DELETE the
+      # NPM_TOKEN secret and revoke the token itself -- this step needs no
+      # change to keep working, because with the secret absent NODE_AUTH_TOKEN
+      # is empty and npm falls back to OIDC, which the id-token permission
+      # above already grants. Provenance ties the tarball to this run either
+      # way.
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --provenance --access public
