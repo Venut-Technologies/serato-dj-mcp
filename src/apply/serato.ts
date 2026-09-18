@@ -16,8 +16,8 @@ export const systemProbe: ProcessProbe = {
       process.kill(pid, 0);
       return true;
     } catch (e) {
-      // EPERM: the process exists and belongs to another user. Spec 2.7 --
-      // that is a live process, not a dead one.
+      // EPERM: the process exists and belongs to another user -- that is a
+      // live process, not a dead one.
       return (e as NodeJS.ErrnoException).code === "EPERM";
     }
   },
@@ -35,10 +35,10 @@ export const systemProbe: ProcessProbe = {
 };
 
 /**
- * Reads master.sqlite's lock table from the LIVE file, read-only. The one
- * exception to "everything through the snapshot" (spec 3.2): a snapshot
- * describes the past, and "is Serato running now" is a question about the
- * present.
+ * Reads master.sqlite's lock table from the LIVE file, read-only. Every other
+ * read in this server goes through a snapshot copy; this one cannot, because
+ * a snapshot describes the past and "is Serato running now" is a question
+ * about the present.
  */
 export function readLockRows(masterPath: string): LockRow[] | SeratoError {
   let db: DatabaseSync | undefined;

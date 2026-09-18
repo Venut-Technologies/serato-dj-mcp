@@ -13,8 +13,8 @@ import { type ReadCtx, readSession, schemaWarnings } from "../read/session.js";
 import { sameCrateName, validateCrateName } from "../stage/name.js";
 import { loadStage, type Stage, type StagedCrate, saveStage } from "../stage/store.js";
 
-/** Decision 12: bounded, like every other model-supplied list since the P2
- *  review found an unbounded `q` could stall the server for 36 seconds. */
+/** Bounded, like every other model-supplied list: an unbounded search string
+ *  was measured stalling this synchronous server for 36 seconds. */
 export const MAX_STAGE_TRACKS = 1000;
 
 /** The number of crates one instance can hold staged at a time -- otherwise
@@ -59,9 +59,9 @@ type AssetRow = {
 
 type Rejection = { track_id: number; reason: string };
 
-/** Ruling 10 part C.1: a specific message for the one rejection reason that
- *  is not "this track" but "this whole schema" -- every other reason keeps
- *  the generic message below. */
+/** A specific message for the one rejection reason that is not "this track"
+ *  but "this whole schema" -- every other reason keeps the generic message
+ *  below. */
 const REJECTION_MESSAGES: Record<string, string> = {
   library_disk_unknown:
     "cannot tell which location is this library's own disk: no connection row names root.sqlite",
@@ -73,10 +73,10 @@ const REJECTION_MESSAGES: Record<string, string> = {
  * conflict id and `root_generation`.
  *
  * Owns its own try/catch/finally so the catch below covers exactly "reading
- * root.sqlite" and nothing past it (review finding on the first cut of
- * Ruling 10: a wide catch around the write-lock section too meant a bug in
- * the stage logic came back mislabelled as `root_unreadable`). Every
- * refusal here is a `return`, not a `throw`, so it already bypasses the
+ * root.sqlite" and nothing past it (an earlier, wider catch around the
+ * write-lock section too meant a bug in the stage logic came back
+ * mislabelled as `root_unreadable`, found in review). Every refusal here is
+ * a `return`, not a `throw`, so it already bypasses the
  * catch below on its own -- the catch exists only for what `new
  * DatabaseSync`, `.exec` and the queries against `root` can throw.
  */
@@ -109,7 +109,7 @@ function readRoot(
       }
     }
     if (rejections.length > 0) {
-      // Spec 3.5: a partially created crate is worse than a refusal.
+      // A partially created crate is worse than a refusal.
       return err(
         "write_refused",
         REJECTION_MESSAGES[rejections[0].reason] ?? "some tracks cannot be written into a crate",
@@ -125,10 +125,10 @@ function readRoot(
     const rootGen = rootGeneration(root, rootPath, libraryId);
     return { conflict, rootGen };
   } catch (e) {
-    // Ruling 10 part C.2: root.sqlite is live and Serato may hold it open.
-    // SQLITE_BUSY means exactly that and is worth a retry; anything else --
-    // a damaged file, an I/O error -- is not, and reporting it as the
-    // generic snapshot_failed would blame the wrong database.
+    // root.sqlite is live and Serato may hold it open. SQLITE_BUSY means
+    // exactly that and is worth a retry; anything else -- a damaged file, an
+    // I/O error -- is not, and reporting it as the generic snapshot_failed
+    // would blame the wrong database.
     if (isSqliteBusy(e)) {
       return err("busy", "root.sqlite is being written, most likely by Serato", {
         retry_after_ms: 3000,
@@ -188,8 +188,8 @@ export async function stageCrate(
     }
 
     // The boot disk's store is the connection whose database_uri names
-    // root.sqlite (spec 2.3); a location.sqlite is another volume, with its
-    // own store this protocol does not write.
+    // root.sqlite; a location.sqlite is another volume, with its own store
+    // this protocol does not write.
     const bootLocations = new Set(
       handle.schema.tables.has("connection")
         ? (
@@ -200,10 +200,10 @@ export async function stageCrate(
         : [],
     );
 
-    // Ruling 10 part C.1: an empty set here means no connection row names
-    // root.sqlite at all -- an unfamiliar schema, not "every track happens to
-    // live on another disk". Naming that precisely stops the model from
-    // concluding "move the file" when the real problem is elsewhere.
+    // An empty set here means no connection row names root.sqlite at all --
+    // an unfamiliar schema, not "every track happens to live on another
+    // disk". Naming that precisely stops the model from concluding "move the
+    // file" when the real problem is elsewhere.
     const diskUnknown = bootLocations.size === 0;
 
     const rejections: Rejection[] = [];
@@ -233,8 +233,8 @@ export async function stageCrate(
       });
     }
 
-    // Decision 1: resolve against the current snapshot and say the library
-    // moved, rather than refusing a model that searched a moment ago.
+    // Resolve against the current snapshot and say the library moved, rather
+    // than refusing a model that searched a moment ago.
     if (args.generation !== undefined && args.generation !== handle.snapshot.generation) {
       warnings.push({
         code: "snapshot_advanced",
@@ -246,17 +246,17 @@ export async function stageCrate(
       });
     }
 
-    // Ruling 10 part A.1: from here to the save, the stage file is read,
-    // checked and written as one step. Without the lock, two server
-    // instances staging at once can each read the same stage, and the
-    // second save silently drops the first's crate. Every read above -- of
-    // the snapshot and of root.sqlite -- is already done, so the lock is
-    // held only around the stage file itself.
+    // From here to the save, the stage file is read, checked and written as
+    // one step. Without the lock, two server instances staging at once can
+    // each read the same stage, and the second save silently drops the
+    // first's crate. Every read above -- of the snapshot and of root.sqlite
+    // -- is already done, so the lock is held only around the stage file
+    // itself.
     //
-    // No catch wraps this section (review finding on the first cut of
-    // Ruling 10: the old wide catch turned a bug here into a misleading
-    // `root_unreadable`). A genuine bug below propagates to readSession's
-    // own handler, same as anywhere else in this callback.
+    // No catch wraps this section (an earlier, wider catch here turned a bug
+    // in this logic into a misleading `root_unreadable`, found in review). A
+    // genuine bug below propagates to readSession's own handler, same as
+    // anywhere else in this callback.
     const lock = acquireWriteLock(ctx.stateDir, handle.libraryId);
     if (isSeratoError(lock)) return lock;
     try {

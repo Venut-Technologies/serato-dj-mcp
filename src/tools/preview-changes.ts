@@ -67,7 +67,7 @@ export async function previewChanges(
   }));
   const trackTotal = crates.reduce((n, c) => n + c.tracks.length, 0);
   const staged = crates.map((c) => c.staged_at).sort();
-  // Decision 10: not bound to a snapshot, and the envelope's `generation`
+  // A stage is not bound to a snapshot, and the envelope's `generation`
   // field is what every other tool uses for the live snapshot -- putting the
   // stage's own generation there would be misleading, so it is left absent.
   return ok({

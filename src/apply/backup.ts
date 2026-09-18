@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
 import { err, type SeratoError } from "../errors.js";
 
-/** Spec 7: backups are kept, not merely cached -- the last ten per library. */
+/** Backups are kept, not merely cached -- the last ten per library. */
 export const MAX_BACKUPS = 10;
 
 export type BackupPaths = { root: string; master: string };
@@ -21,7 +21,7 @@ const sha256 = (path: string) => createHash("sha256").update(readFileSync(path))
 const failed = (message: string) => err("write_failed_not_committed", message, { stage: "backup" });
 
 /**
- * Backs up both databases before any write, fail-closed (spec 5.1.4).
+ * Backs up both databases before any write, fail-closed.
  *
  * root.sqlite is a plain file copy verified by hash: it runs in journal_mode
  * DELETE with no sidecars, and apply refuses earlier if a root.sqlite-journal

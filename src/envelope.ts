@@ -3,8 +3,8 @@ import { isSeratoError } from "./errors.js";
 
 export type Warning = { code: string; message: string; details?: Record<string, unknown> };
 
-/** Shared shape for every tool's outputSchema: spec 4.0 puts warnings[] on
- *  every successful envelope, not just some of them. */
+/** Shared shape for every tool's outputSchema: warnings[] belongs on every
+ *  successful envelope, not just some of them. */
 export const warningSchema = z.object({
   code: z.string(),
   message: z.string(),

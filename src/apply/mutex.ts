@@ -9,8 +9,7 @@ import { isSqliteBusy } from "./sqlite.js";
 export const WRITE_LOCK_RETRY_MS = 3000;
 
 /**
- * Exclusive per-library lock for the duration of apply_changes (spec 5.0,
- * amendment 5).
+ * Exclusive per-library lock for the duration of apply_changes.
  *
  * The lock is SQLite's own: an EXCLUSIVE transaction on an empty database in
  * the state directory, held open until release(). SQLite takes it with a POSIX

@@ -27,10 +27,10 @@ export type StagedCrate = {
 
 /**
  * What survives between staging and applying. It stores portable_id rather
- * than the master snapshot's asset.id (spec 3.4): an id only means something
- * against one snapshot, while apply re-resolves portable_id against root.sqlite
- * inside its own transaction (P4 amendment 2). track_id, title and artist are
- * kept only so preview_changes can show a human what will be written.
+ * than the master snapshot's asset.id: an id only means something against
+ * one snapshot, while apply re-resolves portable_id against root.sqlite
+ * inside its own transaction. track_id, title and artist are kept only so
+ * preview_changes can show a human what will be written.
  */
 export type Stage = {
   schema_version: 1;
@@ -49,9 +49,10 @@ export type Stage = {
  * previewChanges/discardChanges as a `Stage` with `undefined` where a track's
  * `portable_id` should be -- previewChanges threw a TypeError, and
  * discardChanges returned `discarded_ids: [undefined]`, which fails its own
- * output schema (review finding, Ruling 10 part B). tracks.min(1) matches
- * spec 5.8: Serato deletes an empty crate, so a staged one with no tracks is
- * already the wrong shape, not merely an edge case.
+ * output schema (found in review). tracks.min(1) matches what was measured
+ * directly: Serato deletes an empty crate on its own (see
+ * docs/serato-4x-notes.md), so a staged one with no tracks is already the
+ * wrong shape, not merely an edge case.
  */
 const stagedTrackSchema = z.object({
   track_id: z.number().int(),

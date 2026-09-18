@@ -15,12 +15,11 @@ export type Crate = {
  * The one space whose subtree holds user crates. A bare `type = 1` filter is
  * not enough to identify them: Serato's own Prepare panel is also
  * `type = 1`, but it lives in a space of its own (named "Prepare"), not this
- * one -- verified against the live library (design spec 2.4), which returned
+ * one -- verified against the live library, which returned
  * `{"id":14,"name":"Prepare","space":"Prepare",...}` for a plain `type = 1`
- * query. The write path anchors on this same space by the same name (spec
- * 5.2); the read path has to agree, or a crate the write path would never
- * touch could still be listed and resolved for reads (review 2026-09-13,
- * finding 2).
+ * query. The write path anchors on this same space by the same name; the
+ * read path has to agree, or a crate the write path would never touch could
+ * still be listed and resolved for reads (found in review, 2026-09-13).
  */
 export const ANCHOR_SPACE_NAME = "Serato Library";
 
@@ -64,10 +63,10 @@ export function listCrates(db: DatabaseSync, opts: { limit: number; afterId?: nu
 }
 
 /**
- * Decision 8 (2026-09-07): exact match, case-insensitive. A partial match
- * would silently pick "Gigs 2025" for "Gigs"; the refusal instead carries
- * every crate name, so the model picks correctly on its next call rather
- * than having to list the crates first.
+ * Exact match, case-insensitive (decided 2026-09-07): a partial match would
+ * silently pick "Gigs 2025" for "Gigs"; the refusal instead carries every
+ * crate name, so the model picks correctly on its next call rather than
+ * having to list the crates first.
  */
 export function resolveCrate(
   db: DatabaseSync,

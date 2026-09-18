@@ -109,4 +109,16 @@ describe("repository hygiene", () => {
     );
     expect([...users, ...volumes]).toEqual([]);
   });
+
+  // A comment that cites "spec 5.4" or "Ruling 10" cites a document nobody
+  // outside this machine has. What it knew has to be said in the comment.
+  const INTERNAL_REFERENCE =
+    /\b(?:spec|Spec|SPEC)\s\d+(?:\.\d+)*|\bRuling\s\d+|\bDecision\s\d+|\bamendment\s\d+|ПОПРАВКА/g;
+
+  it("points at no internal document from src", () => {
+    // hits() already runs through forEachLine, which skips SELF_PATH -- this
+    // rule's own pattern literal would otherwise match itself.
+    const found = hits(INTERNAL_REFERENCE).filter((h) => h.startsWith("src/"));
+    expect(found).toEqual([]);
+  });
 });

@@ -32,8 +32,8 @@ const DEFAULT_DIRECTION: Record<string, "asc" | "desc"> = {
 
 export function parseSort(raw: string | undefined, hasQuery: boolean): SortSpec | SeratoError {
   if (raw === undefined) {
-    // Decision 3 (2026-09-07): relevance is the default only when there is a
-    // query for it to be relative to.
+    // Relevance is the default only when there is a query for it to be
+    // relative to (decided 2026-09-07).
     return hasQuery
       ? { field: "relevance", dir: "desc" }
       : { field: "added", dir: DEFAULT_DIRECTION.added };

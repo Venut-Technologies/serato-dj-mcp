@@ -15,12 +15,12 @@ import {
 import { checkSeratoClosed, type ProcessProbe, systemProbe } from "./serato.js";
 import { isSqliteBusy } from "./sqlite.js";
 
-/** Spec 5.4: SQLITE_BUSY becomes busy with retry_after_ms equal to this. */
+/** SQLITE_BUSY becomes busy with retry_after_ms equal to this. */
 export const BUSY_TIMEOUT_MS = 3000;
 
 /** node:sqlite's extended code for a UNIQUE violation, measured 2026-09-14.
  *  The primary code 19 is shared with NOT NULL (1299), CHECK and FK, so only
- *  the extended code identifies a name collision (spec 5.4). */
+ *  the extended code identifies a name collision. */
 const SQLITE_CONSTRAINT_UNIQUE = 2067;
 
 export type AppliedCrate = {
@@ -79,7 +79,7 @@ function writeInTransaction(input: ApplyInput): ApplyOutcome | SeratoError {
 
   try {
     // Explicit even though node:sqlite enables foreign keys by default: the
-    // protocol must not depend on a binding's default (spec 5.4).
+    // protocol must not depend on a binding's default.
     db.exec("PRAGMA foreign_keys = ON");
     db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
     try {
@@ -95,7 +95,7 @@ function writeInTransaction(input: ApplyInput): ApplyOutcome | SeratoError {
       return notCommitted("begin", `cannot start the write transaction: ${String(e)}`);
     }
 
-    // Spec 5.1.3: again, now that we hold the write lock. Serato may have
+    // Checked again, now that we hold the write lock: Serato may have
     // started between the caller's first check and this BEGIN.
     const running = checkSeratoClosed(input.masterPath, probe);
     if (running !== null) {
@@ -116,8 +116,9 @@ function writeInTransaction(input: ApplyInput): ApplyOutcome | SeratoError {
     // The triggers only ever raise space.revision TO serato.revision, so a
     // space already ahead of it stays ahead after this write's bump: the
     // pre-COMMIT check below would then refuse every apply behind a
-    // misleading "revision unmoved" failure, forever. Never observed (live
-    // 72/72; spec 5.7 measured 13/12), but cheap to rule out up front.
+    // misleading "revision unmoved" failure, forever. Never observed (measured
+    // equal at 72/72 on the live library, and at 13/12 in an earlier fixture
+    // check), but cheap to rule out up front.
     const revisionsBefore = db
       .prepare(
         "SELECT (SELECT revision FROM serato) AS serato, (SELECT revision FROM space WHERE id = ?) AS space",
@@ -134,8 +135,8 @@ function writeInTransaction(input: ApplyInput): ApplyOutcome | SeratoError {
     }
 
     const warnings: Warning[] = [];
-    // P4 amendment 2: informational. What the crate actually depends on is
-    // re-validated below instead.
+    // Informational only: what the crate actually depends on is re-validated
+    // below instead.
     if (rootGeneration(db, input.rootPath, input.libraryId) !== input.stagedRootGeneration) {
       warnings.push({
         code: "root_generation_changed",
@@ -161,8 +162,8 @@ function writeInTransaction(input: ApplyInput): ApplyOutcome | SeratoError {
       }
     }
 
-    // Re-validation (decisions 2 and 7): name conflicts first, because a
-    // conflict makes the whole batch meaningless regardless of tracks.
+    // Re-validation: name conflicts first, because a conflict makes the whole
+    // batch meaningless regardless of tracks.
     const resolvedByCrate = new Map<string, Map<string, number>>();
     const unresolvable: number[] = [];
     for (const crate of input.crates) {
@@ -193,9 +194,9 @@ function writeInTransaction(input: ApplyInput): ApplyOutcome | SeratoError {
       });
     }
 
-    // Spec 5.5's foreign-key check is about THIS write, so it is a count before
-    // and after rather than a demand for zero: a library that already carries
-    // an orphan row would otherwise refuse every apply forever, over damage the
+    // The foreign-key check is about THIS write, so it is a count before and
+    // after rather than a demand for zero: a library that already carries an
+    // orphan row would otherwise refuse every apply forever, over damage the
     // write did not cause. (The live root had none on 2026-09-15.)
     const foreignKeyViolations = () =>
       db.prepare("PRAGMA foreign_key_check(container)").all().length +
@@ -205,7 +206,7 @@ function writeInTransaction(input: ApplyInput): ApplyOutcome | SeratoError {
     // (A) revision first. The space-revision triggers ASSIGN
     // space.revision := serato.revision under space.revision < serato.revision,
     // so bumping after the inserts would leave the space revision unmoved and
-    // the crate invisible to Serato (spec 2.5, 5.4).
+    // the crate invisible to Serato.
     db.exec("UPDATE serato SET revision = COALESCE(revision, 0) + 1");
     const { revision } = db.prepare("SELECT revision FROM serato").get() as { revision: number };
 
@@ -268,8 +269,8 @@ function writeInTransaction(input: ApplyInput): ApplyOutcome | SeratoError {
       });
     }
 
-    // Spec 5.5, before COMMIT: targeted checks instead of quick_check over the
-    // whole database.
+    // Before COMMIT: targeted checks instead of quick_check over the whole
+    // database.
     const problems: string[] = [];
     const fkAfter = foreignKeyViolations();
     if (fkAfter > fkBefore) {
@@ -343,7 +344,7 @@ function writeInTransaction(input: ApplyInput): ApplyOutcome | SeratoError {
 }
 
 /**
- * Spec 5.5, after COMMIT, on a NEW connection -- the only thing that makes
+ * After COMMIT, on a NEW connection -- the only thing that makes
  * committed_unverified a reachable state rather than a hope. A failure here
  * means the data may well be in the file; the caller gets the backup paths.
  */

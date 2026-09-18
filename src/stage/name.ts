@@ -1,7 +1,7 @@
 import { err, type SeratoError } from "../errors.js";
 
-/** Spec 4.2. Counted in characters (code points), not bytes or UTF-16 units:
- *  a DJ's crate named in Cyrillic must get the same budget as one in Latin. */
+/** Counted in characters (code points), not bytes or UTF-16 units: a DJ's
+ *  crate named in Cyrillic must get the same budget as one in Latin. */
 export const MAX_CRATE_NAME_LENGTH = 128;
 
 /**
@@ -10,10 +10,10 @@ export const MAX_CRATE_NAME_LENGTH = 128;
  *
  * NFC first, because macOS hands out decomposed (NFD) strings and a model
  * types composed ones; "Café" from each would otherwise be two different
- * crates that look identical in Serato. The forbidden set is spec 4.2's:
- * "/" and ":" are path separators in the legacy Subcrates export Serato
- * writes from these names, NUL terminates strings in that format, and "%%"
- * is the separator Serato itself uses for nested crate file names.
+ * crates that look identical in Serato. The forbidden set follows the legacy
+ * Subcrates export Serato writes from these names: "/" and ":" are path
+ * separators in that format, NUL terminates strings in it, and "%%" is the
+ * separator Serato itself uses for nested crate file names.
  */
 export function validateCrateName(raw: string): { name: string } | SeratoError {
   const name = raw.normalize("NFC").trim();

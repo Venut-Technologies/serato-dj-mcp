@@ -4,22 +4,22 @@ import { err, type SeratoError } from "./errors.js";
 type Issue = { path: string; code: string; message: string };
 
 /**
- * The single place raw tool arguments become typed ones. Spec 6 asks for
- * exactly one such helper across all tools: engine-dj-mcp's defect was that
- * some tools called .parse() and others safeParse(), so one class of problem
- * -- a malformed argument -- reached the model in two different shapes.
+ * The single place raw tool arguments become typed ones, deliberately the
+ * only one: engine-dj-mcp's defect was that some tools called .parse() and
+ * others safeParse(), so one class of problem -- a malformed argument --
+ * reached the model in two different shapes.
  *
  * Every failure comes back as an `invalid_argument` value carrying the
- * mandatory `reason` (spec 6), never as a throw: a thrown ZodError is
- * converted by the MCP layer into prose with no code at all (measured
- * 2026-09-06: `{"sql":"","limit":1000}` came back as isError text reading
- * "MCP error -32602: Input validation error: Invalid arguments for tool
- * run_sql: Too small ..."), which the model cannot dispatch on and which
- * contradicts the taxonomy in errors.ts.
+ * mandatory `reason`, never as a throw: a thrown ZodError is converted by
+ * the MCP layer into prose with no code at all (measured 2026-09-06:
+ * `{"sql":"","limit":1000}` came back as isError text reading "MCP error
+ * -32602: Input validation error: Invalid arguments for tool run_sql: Too
+ * small ..."), which the model cannot dispatch on and which contradicts the
+ * taxonomy in errors.ts.
  *
  * `reason` defaults to "schema_violation" but a check can name its own by
  * passing `params: { reason: "..." }` to .refine()/.superRefine(). That is
- * how the cross-field refusals spec 4.1 requires -- `around` together with
+ * how this server's cross-field refusals -- `around` together with
  * `min`/`max`, `crate.id` together with `crate.name`, a cursor that does not
  * match its query -- get their specific reason without a second error path:
  * they are refinements on the tool's own schema, and they land here like any
