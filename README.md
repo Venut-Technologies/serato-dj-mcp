@@ -216,10 +216,9 @@ Read this before deciding what to trust.
 - **Two audit checks rest on column semantics this project has not confirmed.** `stale` reads
   `is_stale` and `streaming_only` reads `third_party_type`; both were zero on every track of the
   reference library, so their counts are reported without any claim about what they mean.
-- **`rating` and the streaming flag are passed through uninterpreted.** On
-  the reference library `rating` was NULL or 0 on all 118 tracks (measured
-  2026-09-06), so the top of the scale is unconfirmed; no meaning is claimed
-  for the streaming flag either.
+- **`rating` and the streaming flag are passed through uninterpreted.** `rating` was NULL or 0 on
+  all 118 tracks of the reference library, so the top of the scale is unconfirmed. No meaning
+  beyond the raw column value is claimed for the streaming flag.
 - **`analysis_flags` bit 2 is claimed, though the rest of the field is not.**
   It is read as "Serato ran its own analysis" — not the same as "has a BPM",
   since a BPM can come from the file's tags — and exposed as

@@ -328,9 +328,10 @@ export function makeRootFixture(
     "INSERT INTO dbv2_status (last_import_revision, last_export_revision) VALUES (?, ?)",
   ).run(0, rev);
   // root.master.last_sync_secret is a 64-bit value on the live file that does
-  // not fit a JavaScript number; the fixture uses a small one, and nothing in
-  // src/ reads that table at all -- the same trap master.sqlite's own master
-  // table has, which src/apply/root.ts avoids the same way.
+  // not fit a JavaScript number (measured 2026-09-14); the fixture uses a
+  // small one. Nothing in src/ reads that table: src/apply/root.ts, which
+  // needs a generation number, reads serato.revision directly instead of
+  // touching master at all.
   db.prepare(
     "INSERT INTO master (uuid, revision, last_sync_time, last_sync_secret) VALUES (?, 1, 0, 0)",
   ).run(Buffer.alloc(16, 1));
