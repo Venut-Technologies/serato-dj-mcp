@@ -16,8 +16,8 @@ body:
       label: What happened
       placeholder: |
         Tool: search_tracks
-        Arguments: {"bpm_min": 120, "bpm_max": 126, "key": "8A"}
-        Error: E_LIBRARY_LOCKED
+        Arguments: {"bpm": {"min": 120, "max": 126}, "key": {"camelot": ["8A", "9A"]}}
+        Error: snapshot_failed
     validations:
       required: true
 
