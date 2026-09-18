@@ -7,7 +7,9 @@ changes.
 
 ## [Unreleased]
 
-Nothing has been published yet. The first release will contain:
+## [0.1.0] - 2026-09-19
+
+The first release: reading, auditing and — behind a flag — crate writing.
 
 ### Added
 
@@ -26,7 +28,8 @@ Nothing has been published yet. The first release will contain:
   `apply_changes`. Crates are staged first and applied only with Serato closed, all or nothing,
   after a backup of both library databases and with a manifest of every write ([4031b37]).
 
-[Unreleased]: https://github.com/Venut-Technologies/serato-dj-mcp/commits/main
+[Unreleased]: https://github.com/Venut-Technologies/serato-dj-mcp/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/Venut-Technologies/serato-dj-mcp/releases/tag/v0.1.0
 [fb8c0a0]: https://github.com/Venut-Technologies/serato-dj-mcp/commit/fb8c0a0
 [589c6cb]: https://github.com/Venut-Technologies/serato-dj-mcp/commit/589c6cb
 [4031b37]: https://github.com/Venut-Technologies/serato-dj-mcp/commit/4031b37
