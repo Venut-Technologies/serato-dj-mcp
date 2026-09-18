@@ -116,9 +116,10 @@ function writeInTransaction(input: ApplyInput): ApplyOutcome | SeratoError {
     // The triggers only ever raise space.revision TO serato.revision, so a
     // space already ahead of it stays ahead after this write's bump: the
     // pre-COMMIT check below would then refuse every apply behind a
-    // misleading "revision unmoved" failure, forever. Never observed (measured
-    // equal at 72/72 on the live library, and at 13/12 in an earlier fixture
-    // check), but cheap to rule out up front.
+    // misleading "revision unmoved" failure, forever. Never observed: the
+    // space revision has been seen equal to the library's (72/72 on the live
+    // library) and one behind it (13/12 in an earlier run, both moved to 14
+    // by that write), never ahead of it -- but cheap to rule out up front.
     const revisionsBefore = db
       .prepare(
         "SELECT (SELECT revision FROM serato) AS serato, (SELECT revision FROM space WHERE id = ?) AS space",
