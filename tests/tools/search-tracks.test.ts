@@ -141,9 +141,9 @@ describe("search_tracks", () => {
     expect(second.next_cursor).toBeUndefined();
   });
 
-  // Carried over from task 9's review: the one existing test that combines q
-  // with a cursor (above) is refused before the query ever runs, so that
-  // branch never exercises a statement built from all three parameter
+  // The one existing test that combines q with a cursor (above) is refused
+  // before the query ever runs, so that branch never exercises a statement
+  // built from all three parameter
   // sources at once. This one does: q contributes the relevance params,
   // genre contributes a filter param, and the cursor contributes the keyset
   // params -- in the order search_tracks binds them (select, filters,

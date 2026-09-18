@@ -115,11 +115,19 @@ describe("repository hygiene", () => {
   // Built from character classes rather than the literal words themselves,
   // so this pattern does not describe itself -- moot while SELF_PATH is
   // skipped, but true independently of that skip too. Besides the numbered
-  // forms (any case), it also catches the two forms a numbered citation
-  // never took: "P2 review" (a project phase standing in for a document)
-  // and "review ... finding 3" (a numbered item inside one).
+  // forms (any case), it also catches: "P2 review" (a project phase
+  // standing in for a document), "review ... finding 3" and a bare
+  // "finding 3" (a numbered item, cited with or without "review" attached),
+  // "task 9's review", "per B3" (a lettered/numbered internal label -- the
+  // "per" is load-bearing: without it this would also catch every local
+  // mutation-test label this suite already uses, like "A1:" or "C3:", which
+  // are defined right where they are used, not citations to anything), and
+  // a bare "the spec" naming OUR OWN document with no article-less name in
+  // front of it -- "the MCP spec" or "the MCP specification" still reads
+  // fine, since "spec"/"specification" there is qualified by a real,
+  // public name instead of standing in for one.
   const INTERNAL_REFERENCE =
-    /\b[Ss][Pp][Ee][Cc]\s\d+(?:\.\d+)*|\b[Rr][Uu][Ll][Ii][Nn][Gg]\s\d+|\b[Dd][Ee][Cc][Ii][Ss][Ii][Oo][Nn]\s\d+|\b[Aa][Mm][Ee][Nn][Dd][Mm][Ee][Nn][Tt]\s\d+|\b[Pp][1-4]\s+[Rr][Ee][Vv][Ii][Ee][Ww]\b|\b[Rr][Ee][Vv][Ii][Ee][Ww]\b\s+[Oo][Ff]\s+[Pp][1-4]\b|\b[Rr][Ee][Vv][Ii][Ee][Ww]\b[^\n]{0,24}[Ff][Ii][Nn][Dd][Ii][Nn][Gg]\s\d+|ПОПРАВКА/g;
+    /\b[Ss][Pp][Ee][Cc]\s\d+(?:\.\d+)*|\b[Rr][Uu][Ll][Ii][Nn][Gg]\s\d+|\b[Dd][Ee][Cc][Ii][Ss][Ii][Oo][Nn]\s\d+|\b[Aa][Mm][Ee][Nn][Dd][Mm][Ee][Nn][Tt]\s\d+|\b[Pp][1-4]\s+[Rr][Ee][Vv][Ii][Ee][Ww]\b|\b[Rr][Ee][Vv][Ii][Ee][Ww]\b\s+[Oo][Ff]\s+[Pp][1-4]\b|\b[Rr][Ee][Vv][Ii][Ee][Ww]\b[^\n]{0,24}[Ff][Ii][Nn][Dd][Ii][Nn][Gg]\s\d+|\b[Ff][Ii][Nn][Dd][Ii][Nn][Gg]\s\d+\b|\b[Tt]he\s+[Ss]pec\b|\b[Tt]ask\s\d+(?:'s)?\s+[Rr]eview\b|\bper\s+[A-Z]\d{1,2}\b|ПОПРАВКА/g;
 
   it("points at no internal document from tracked source", () => {
     const found = hits(INTERNAL_REFERENCE).filter(

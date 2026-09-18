@@ -231,8 +231,8 @@ describe("server", () => {
 
   // A candidate exists (an unreadable master.sqlite) but it is neither a
   // readable 4.x nor a 3.x library, so this still falls back to
-  // library_not_found -- and, per B3, that response must carry searched[]
-  // alongside the existing candidates.
+  // library_not_found -- and that response must carry searched[] alongside
+  // the existing candidates.
   it("run_sql reports library_not_found with searched[] when the only candidate is unreadable", async () => {
     const dir = mkdtempSync(join(tmpdir(), "serato-unreadable-"));
     writeFileSync(join(dir, "master.sqlite"), "not sqlite");

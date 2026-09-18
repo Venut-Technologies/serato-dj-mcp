@@ -260,7 +260,7 @@ describe("snapshot cache", () => {
 
     expect(b.path).toBe(a.path);
     expect(b.generation).toBe(a.generation);
-    // The snapshot served is up to 2 s stale, which is the trade the spec
+    // The snapshot served is up to 2 s stale, which is the trade this server
     // makes -- but it is still exactly one file, not a second copy.
     expect(snapshots(cache)).toHaveLength(1);
   });

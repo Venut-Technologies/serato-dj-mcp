@@ -92,8 +92,8 @@ export const searchTracksInput = z
     limit: z.number().int().min(1).max(MAX_TRACK_LIMIT).optional(),
     cursor: z.string().max(MAX_CURSOR_LENGTH).optional(),
   })
-  // The only cross-field check that has to live here: the other two the spec
-  // names are decided where the knowledge is -- bpm.around against min/max in
+  // The only cross-field check that has to live here: the other two are
+  // decided where the knowledge is -- bpm.around against min/max in
   // filters.ts, and the cursor against its query in cursor.ts.
   .refine((v) => !(v.crate?.id !== undefined && v.crate?.name !== undefined), {
     error: "crate.id and crate.name cannot both be given",
@@ -102,7 +102,7 @@ export const searchTracksInput = z
   // A per-field .max() on q would report "schema_violation" -- true but
   // useless, since the model cannot tell a too-long q from a too-long
   // anything else. This gets its own reason so the model knows exactly what
-  // to shorten (finding 1).
+  // to shorten.
   .refine((v) => v.q === undefined || qTokenCount(v.q) <= MAX_Q_TOKENS, {
     error: `q has too many tokens (max ${MAX_Q_TOKENS})`,
     params: { reason: "too_many_tokens" },

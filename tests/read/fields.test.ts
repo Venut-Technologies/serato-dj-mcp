@@ -23,7 +23,7 @@ const ALL_COLUMNS = new Set([
 ]);
 
 describe("resolveFields", () => {
-  it("defaults to the nine fields the spec names, key_source included", () => {
+  it("defaults to the nine default fields, key_source included", () => {
     const r = resolveFields(undefined, ALL_COLUMNS);
     if (isSeratoError(r)) throw new Error("unexpected error");
     expect(r.fields).toEqual([
