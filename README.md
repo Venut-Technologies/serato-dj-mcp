@@ -5,6 +5,9 @@ MCP server for the Serato DJ 4.x library. Reads always; creates crates with --al
 > Not affiliated with Serato. This project reads a reverse-engineered SQLite
 > layout and can stop working after any Serato update.
 
+Everything this server assumes about the Serato library is written down in
+[docs/serato-4x-notes.md](docs/serato-4x-notes.md), with the measurement behind each claim.
+
 ## Install
 
 ```json
