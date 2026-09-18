@@ -1,0 +1,37 @@
+name: Feature request
+description: Suggest something serato-dj-mcp should do
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: What are you trying to do
+      description: >-
+        Describe the DJ-level task, not the API you imagine — "build a warm-up crate from my
+        deep house tracks" rather than "add a genre filter to stage_crate".
+    validations:
+      required: true
+
+  - type: textarea
+    id: obstacle
+    attributes:
+      label: What the server does today that gets in the way
+    validations:
+      required: true
+
+  - type: textarea
+    id: how-it-could-work
+    attributes:
+      label: How you imagine it working
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: write-protocol
+    attributes:
+      label: Writing to the library
+      options:
+        - label: >-
+            I understand that anything that writes to the library needs a protocol that can be
+            verified, and that this may take a while.
+          required: true
