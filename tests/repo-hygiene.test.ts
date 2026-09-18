@@ -6,8 +6,12 @@ import { describe, expect, it } from "vitest";
 
 /**
  * What must never reach a published repository, as a test rather than as a
- * habit. It reads the tracked file list from git, so a new file is covered
- * the moment it is added.
+ * habit -- as far as a text scan can see it. It catches a whole database
+ * identifier (32 or more hex characters, bare or as a SQLite blob literal),
+ * a real user or volume name in a path, and a citation of an internal
+ * document; it does not catch a shorter fragment of an identifier. It reads
+ * the tracked file list from git, so a new file is covered the moment it
+ * is added.
  */
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 

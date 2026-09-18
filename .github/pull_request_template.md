@@ -8,8 +8,10 @@
 - [ ] I checked myself: no file of a real library (a `.sqlite`, `.sqlite-wal`/`-shm` or `.crate`
       file) is in the diff. `tests/repo-hygiene.test.ts` cannot see this — it skips any file with
       a NUL byte, and a real library file is binary.
-- [ ] No database identifier, real user name or real volume name is in the diff, as text
-      (`npx vitest run tests/repo-hygiene.test.ts` covers this).
+- [ ] No whole database identifier (32+ hex characters, bare or as a SQLite blob literal), real
+      user name or real volume name is in the diff, as text (`npx vitest run
+      tests/repo-hygiene.test.ts` covers this). It does not catch a shorter fragment of an
+      identifier -- check that yourself.
 - [ ] Comments state the fact and the measurement behind it, and point at no document that is
       not in this repository.
 - [ ] Anything about how Serato behaves is either measured, with the measurement in the comment

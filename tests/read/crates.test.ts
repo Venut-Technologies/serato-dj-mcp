@@ -73,7 +73,7 @@ describe("listCrates", () => {
   });
 
   // The 15 space roots and the smart crate (whose real name is
-  // "Stems<private-use char>22222222...") are noise in the model's context.
+  // "Stems<private-use char><uuid>") are noise in the model's context.
   it("shows no space roots", () => {
     expect(listCrates(db, { limit: 100 }).every((c) => c.type === 1)).toBe(true);
   });
