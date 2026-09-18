@@ -37,13 +37,14 @@ export type Tonality = { camelot: string; source: KeySource };
  *
  * One table, not two: the musical names below and Serato's integer
  * key_value index the same wheel, so deriving both from one array is what
- * keeps them from drifting apart. Verified against two conversions checked
- * directly against Serato's own stored values -- D -> 21 -> 10B and
- * Ebm -> 1 -> 2A -- and then cross-checked against Serato itself on
- * 2026-09-06: of the 39 real tracks
- * carrying both a key_value and a text key, fromKeyValue() and fromKeyText()
- * agreed on all 39, across 14 distinct spellings (Abm, Am, Bbm, Bm, Cm, D,
- * E, Ebm, Em, F, F#m, Fm, Gm, and the Camelot passthrough 9A).
+ * keeps them from drifting apart. Verified against two known conversions --
+ * D -> 21 -> 10B and Ebm -> 1 -> 2A.
+ *
+ * Separately, cross-checked against Serato itself on 2026-09-06: of the 39
+ * real tracks carrying both a key_value and a text key, fromKeyValue() and
+ * fromKeyText() agreed on all 39, across 14 distinct spellings (Abm, Am,
+ * Bbm, Bm, Cm, D, E, Ebm, Em, F, F#m, Fm, Gm, and the Camelot passthrough
+ * 9A).
  */
 const MINOR = ["Abm", "Ebm", "Bbm", "Fm", "Cm", "Gm", "Dm", "Am", "Em", "Bm", "F#m", "Dbm"];
 const MAJOR = ["B", "F#", "Db", "Ab", "Eb", "Bb", "F", "C", "G", "D", "A", "E"];
