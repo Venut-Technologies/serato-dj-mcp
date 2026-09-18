@@ -28,8 +28,8 @@ describe("paths", () => {
     expect(
       volumeRootFromDatabaseUri("/Users/v/Library/Application Support/Serato/Library/root.sqlite"),
     ).toBe("/");
-    expect(volumeRootFromDatabaseUri("/Volumes/USB/_Serato_/Library/location.sqlite")).toBe(
-      "/Volumes/USB",
+    expect(volumeRootFromDatabaseUri("/Volumes/EXTDISK/_Serato_/Library/location.sqlite")).toBe(
+      "/Volumes/EXTDISK",
     );
   });
 
