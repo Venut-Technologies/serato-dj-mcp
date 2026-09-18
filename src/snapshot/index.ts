@@ -11,10 +11,10 @@ const FULL_DISK_ACCESS_INSTRUCTIONS =
 
 export type Snapshot = { path: string; generation: string; takenAt: number };
 
-/** Spec 3.2: while Serato is running the library changes constantly, so
- *  every call would otherwise compute a fresh generation and copy the whole
- *  database again. Within this window the last snapshot is served instead --
- *  it is a real, consistent copy, just up to 2 s behind. */
+/** While Serato is running the library changes constantly, so every call
+ *  would otherwise compute a fresh generation and copy the whole database
+ *  again. Within this window the last snapshot is served instead -- it is a
+ *  real, consistent copy, just up to 2 s behind. */
 export const SNAPSHOT_THROTTLE_MS = 2_000;
 
 /** A temp file this old cannot belong to a live backup (they take
@@ -35,8 +35,8 @@ function libraryKey(livePath: string): string {
 }
 
 /**
- * Spec 7: snapshots are retained "until (mtime, size) changes" -- so once a
- * newer generation of this library is published, every older one is debris.
+ * Snapshots are retained "until (mtime, size) changes" -- so once a newer
+ * generation of this library is published, every older one is debris.
  * Deleting a file another reader still has open is safe on macOS: the open
  * handle keeps reading the unlinked inode.
  *

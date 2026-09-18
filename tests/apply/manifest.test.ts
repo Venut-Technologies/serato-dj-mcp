@@ -36,9 +36,9 @@ describe("manifest", () => {
     expect(after.crates[0].container_id).toBe(42);
   });
 
-  // An intent without a committed mark is exactly the evidence spec 5.6 wants
-  // after a crash between BEGIN and COMMIT. Earlier operations must survive
-  // every later rewrite of the file.
+  // An intent without a committed mark is exactly the evidence needed after
+  // a crash between BEGIN and COMMIT. Earlier operations must survive every
+  // later rewrite of the file.
   it("keeps earlier operations when a later one is added or committed", () => {
     const state = tmp();
     writeIntent(state, entry("op1"));
@@ -91,7 +91,7 @@ describe("manifest", () => {
     }
   });
 
-  it("reads an absent manifest as empty -- its absence is not an error (spec 5.6)", () => {
+  it("reads an absent manifest as empty -- its absence is not an error", () => {
     expect(readManifest(tmp(), "lib000000001")).toEqual([]);
   });
 

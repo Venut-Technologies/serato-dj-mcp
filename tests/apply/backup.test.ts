@@ -64,8 +64,8 @@ describe("backupLibrary", () => {
     }
   });
 
-  // Fail-closed (spec 5.1.4): the backup is the only way back, so no backup
-  // means no write.
+  // Fail-closed: the backup is the only way back, so no backup means no
+  // write.
   it("fails closed when root.sqlite cannot be copied", async () => {
     const lib = tmp();
     makeLibraryFixture(lib, { tracks: [] });

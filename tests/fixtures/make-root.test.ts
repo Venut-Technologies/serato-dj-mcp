@@ -14,7 +14,7 @@ import {
 const tmp = () => mkdtempSync(join(tmpdir(), "serato-root-fx-"));
 
 describe("root.sqlite fixture", () => {
-  it("has the anchors spec 5.2 resolves, numbered as the live library numbers them", () => {
+  it("has the anchors this protocol resolves, numbered as the live library numbers them", () => {
     const db = new DatabaseSync(makeRootFixture(tmp()), { readOnly: true });
     const space = db
       .prepare("SELECT id FROM space WHERE name = 'Serato Library' COLLATE NOCASE")
@@ -33,7 +33,8 @@ describe("root.sqlite fixture", () => {
   // of the live root.sqlite: the same statements moved serato.revision
   // 72 -> 73 and the space's revision 72 -> 73 by ASSIGNMENT. A fixture whose
   // triggers did not fire would let every write test pass while the real
-  // crate stayed invisible to Serato -- spec 5.4 calls that failure silent.
+  // crate stayed invisible to Serato -- exactly the silent failure this
+  // fixture exists to catch.
   it("fires the space-revision triggers exactly as the live file does", () => {
     const dir = tmp();
     const rootPath = makeRootFixture(dir, {
@@ -67,8 +68,8 @@ describe("root.sqlite fixture", () => {
     expect(fk).toEqual([]);
   });
 
-  // Spec 2.5: a container inserted directly under parent_id = 0 does not
-  // move the space revision -- the trigger carries AND new.parent_id <> 0.
+  // A container inserted directly under parent_id = 0 does not move the
+  // space revision -- the trigger carries AND new.parent_id <> 0.
   it("does not move the revision for a container directly under the synthetic root", () => {
     const db = new DatabaseSync(makeRootFixture(tmp()));
     db.exec("UPDATE serato SET revision = revision + 1");

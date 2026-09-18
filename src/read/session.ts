@@ -17,7 +17,7 @@ export type ReadHandle = {
    *  stage, the manifest and the backups are all keyed by it. */
   libraryId: string;
   /** location_id -> volume root, from connection.database_uri. location.path
-   *  is NULL in every observed row (spec 2.3), so this is the only source. */
+   *  is NULL in every observed row, so this is the only source. */
   volumeRoots: Map<number, string>;
 };
 
@@ -27,8 +27,8 @@ export type ReadHandle = {
  * Every read tool goes through this, so a change to how reads work (a new
  * pragma, a different snapshot policy, another derived table) has exactly one
  * place to happen. It also guarantees the handle is closed on every exit,
- * including a throw from the callback -- P1 leaked a file descriptor three
- * separate times by closing only on the success path.
+ * including a throw from the callback -- an earlier version leaked a file
+ * descriptor three separate times by closing only on the success path.
  */
 export async function readSession<T>(
   ctx: ReadCtx,
@@ -54,7 +54,7 @@ export async function readSession<T>(
   try {
     // node:sqlite is synchronous and has no interrupt(), so a runaway query
     // blocks the server. busy_timeout plus the limit ceilings is the whole
-    // defence (spec 3.1, risk register in section 12).
+    // defence.
     db.exec("PRAGMA busy_timeout = 3000");
     const schema = introspect(db);
     return fn({
@@ -80,7 +80,7 @@ export async function readSession<T>(
 function volumeRoots(db: DatabaseSync, tables: Set<string>): Map<number, string> {
   const roots = new Map<number, string>();
   // Guard against unknown schema variants that lack or rename the connection
-  // table. Spec 3.3: unfamiliar schemas warn and degrade, never refuse.
+  // table: unfamiliar schemas warn and degrade, never refuse.
   if (!tables.has("connection")) return roots;
   const rows = db.prepare("SELECT location_id, database_uri FROM connection").all() as {
     location_id: number;
@@ -97,8 +97,7 @@ function volumeRoots(db: DatabaseSync, tables: Set<string>): Map<number, string>
   return roots;
 }
 
-/** Spec 3.3 and 6: an unfamiliar schema is reported in warnings[], never as
- *  a refusal. */
+/** An unfamiliar schema is reported in warnings[], never as a refusal. */
 export function schemaWarnings(handle: ReadHandle): Warning[] {
   if (handle.schema.known) return [];
   return [

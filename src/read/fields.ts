@@ -17,9 +17,9 @@ type FieldSpec = {
 };
 
 /**
- * The closed list of fields (spec 2.9 and 4.3). Closed on purpose: a model
- * asking for a column that happens to exist in Serato's schema would get a
- * value nobody has verified the meaning of.
+ * The closed list of fields. Closed on purpose: a model asking for a column
+ * that happens to exist in Serato's schema would get a value nobody has
+ * verified the meaning of.
  */
 export const FIELD_SPECS: Record<string, FieldSpec> = {
   id: { candidates: ["id"], sql: (c) => `a.${c}` },
@@ -29,8 +29,8 @@ export const FIELD_SPECS: Record<string, FieldSpec> = {
   genre: { candidates: ["genre"], sql: (c) => `a.${c}` },
   comments: { candidates: ["comments"], sql: (c) => `a.${c}` },
   bpm: { candidates: ["bpm"], sql: (c) => `a.${c}` },
-  // Uninterpreted on purpose (spec 2.9): on the reference library rating was
-  // NULL or 0 on all 118 tracks, so the top of the scale is unconfirmed.
+  // Uninterpreted on purpose: on the reference library rating was NULL or 0
+  // on all 118 tracks, so the top of the scale is unconfirmed.
   rating: { candidates: ["rating"], sql: (c) => `a.${c}` },
   // Milliseconds. length_ms leads because length_sec was NULL on all 19 demo
   // tracks while length_ms was populated (measured 2026-09-03).
@@ -48,8 +48,8 @@ export const FIELD_SPECS: Record<string, FieldSpec> = {
   streaming: { candidates: ["third_party_type"], sql: (c) => `a.${c} <> 0`, map: toBoolean },
   // analysis_flags & 4 means "Serato ran its own analysis", which is NOT the
   // same as "has a BPM" -- a BPM can come from the file's tags. Measured
-  // 2026-09-06 on 118 tracks: 104 of 106 agree, and the twelve that differ
-  // are six sound effects and six tracks whose BPM came from tags.
+  // 2026-09-06 on 118 tracks: 106 have bit 2 set, 104 of those with a BPM;
+  // twelve with it clear are six sound effects and six with tags-based BPM.
   analyzed: { candidates: ["analysis_flags"], sql: (c) => `(a.${c} & 4) <> 0`, map: toBoolean },
   path: {
     candidates: ["portable_id"],
@@ -69,8 +69,8 @@ export const FIELD_SPECS: Record<string, FieldSpec> = {
 
 export const ALL_FIELDS: readonly string[] = Object.keys(FIELD_SPECS);
 
-/** Spec 4.3, plus key_source: the model has to be able to tell Serato's own
- *  parse from ours, because 75 of 118 real tracks only have ours. */
+/** key_source exists so the model can tell Serato's own parse from ours:
+ *  75 of 118 real tracks only have ours. */
 export const DEFAULT_FIELDS: readonly string[] = [
   "id",
   "artist",

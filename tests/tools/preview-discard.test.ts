@@ -55,7 +55,7 @@ describe("preview_changes", () => {
     expect(r.pending[0].tracks?.map((t) => t.title).sort()).toEqual(["Rain", "Storm"]);
   });
 
-  // Spec 4.2: an empty stage is a success with empty arrays, not an error.
+  // An empty stage is a success with empty arrays, not an error.
   it("reports an empty stage as success", async () => {
     const { ctx } = await staged([]);
     const r = await previewChanges({}, ctx);
@@ -83,7 +83,7 @@ describe("discard_changes", () => {
     expect(r.discarded_ids).toEqual(stagedIds);
   });
 
-  // Spec 3.5: an unknown id is named, never silently ignored.
+  // An unknown id is named, never silently ignored.
   it("refuses an unknown staged id, naming it", async () => {
     const { ctx } = await staged(["A"]);
     const r = await discardChanges({ staged_id: "nope0000" }, ctx);
@@ -91,8 +91,8 @@ describe("discard_changes", () => {
     if (isSeratoError(r)) expect(r.error.details?.missing_ids).toEqual(["nope0000"]);
   });
 
-  // Ruling 10 part A.2: a concurrent stage_crate/discard_changes must not be
-  // able to silently drop this call's write, or vice versa.
+  // A concurrent stage_crate/discard_changes must not be able to silently
+  // drop this call's write, or vice versa.
   it("refuses to discard while another instance holds the write lock, leaving the stage intact", async () => {
     const { ctx } = await staged(["A"]);
     const lib = resolveLibrary({ library: ctx.library, roots: ctx.roots });
@@ -112,9 +112,9 @@ describe("discard_changes", () => {
   });
 });
 
-// Ruling 10 part B: a stage file can be well-formed JSON but the wrong shape
-// (a crate or track missing required fields). Both tools must refuse it as a
-// value, never throw, and never touch the file.
+// A stage file can be well-formed JSON but the wrong shape (a crate or track
+// missing required fields). Both tools must refuse it as a value, never
+// throw, and never touch the file.
 describe("a malformed stage file", () => {
   it("is refused by preview and discard without being thrown or touched", async () => {
     const dir = tmp();

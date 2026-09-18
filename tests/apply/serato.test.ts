@@ -96,9 +96,9 @@ describe("findLiveSerato", () => {
 });
 
 describe("systemProbe", () => {
-  // EPERM from kill(pid, 0) means a live process owned by another user, not a
-  // dead one (spec 2.7). The current process is the one pid certain to be
-  // alive and nameable in every environment.
+  // EPERM from kill(pid, 0) means a live process owned by another user, not
+  // a dead one. The current process is the one pid certain to be alive and
+  // nameable in every environment.
   it("sees the current process as alive, with a name", () => {
     expect(systemProbe.isAlive(process.pid)).toBe(true);
     expect(systemProbe.nameOf(process.pid)).toEqual(expect.any(String));

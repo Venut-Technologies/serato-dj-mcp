@@ -52,7 +52,7 @@ describe("parseArgs", () => {
     if (isSeratoError(r)) {
       expect(r.error.code).toBe("invalid_argument");
       expect(r.error.message).toContain("--allow-write");
-      // Spec 6: every invalid_argument must carry details.reason.
+      // Every invalid_argument must carry details.reason.
       expect(r.error.details?.reason).toBe("unknown_argument");
     }
   });
@@ -76,7 +76,7 @@ describe("parseArgs", () => {
   // downstream in discovery/index.ts's discover(), but --cache-dir and
   // --state-dir have no downstream expansion step, so this server itself
   // must do it -- otherwise mkdirSync() would create a directory literally
-  // named "~" inside the process's unpredictable CWD (spec 3.2).
+  // named "~" inside the process's unpredictable CWD.
   it("expands a leading ~ in --cache-dir and --state-dir", () => {
     const c = P(["--cache-dir", "~/cache", "--state-dir", "~/state"]);
     if (isSeratoError(c) || "help" in c || "version" in c) throw new Error("unexpected");

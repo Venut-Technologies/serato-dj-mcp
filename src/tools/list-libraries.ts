@@ -32,8 +32,8 @@ const libraryEntrySchema = z.object({
   track_count: z.number().nullable(),
 });
 
-// list_libraries is the one tool exempted from carrying `generation` (spec
-// 4.0): it is not bound to a single snapshot, it lists all of them.
+// list_libraries is the one tool exempted from carrying `generation`: it is
+// not bound to a single snapshot, it lists all of them.
 export const listLibrariesOutput = z.object({
   libraries: z.array(libraryEntrySchema),
   active: z.string().nullable(),

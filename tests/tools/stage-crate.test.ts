@@ -53,8 +53,9 @@ describe("stage_crate", () => {
     );
     if (isSeratoError(r)) throw new Error(`unexpected error: ${r.error.message}`);
 
-    // Decision 1: the human-readable list is the check that the right tracks
-    // were staged.
+    // The human-readable list is the check that the right tracks were
+    // staged, by title rather than by id, so a mismatch is obvious without
+    // cross-referencing ids.
     expect(r.tracks.map((t) => t.title)).toEqual(["Storm", "Rain"]);
     expect(r.track_count).toBe(2);
     expect(r.generation).toMatch(/^[0-9a-f]{12}$/);
@@ -74,7 +75,8 @@ describe("stage_crate", () => {
     expect(sha(rootPath)).toBe(before);
   });
 
-  // Spec 3.5: an unknown id is named, never dropped, and refuses the whole call.
+  // An unknown id is named, never dropped, and refuses the whole call: a
+  // crate that is silently missing a track is worse than no crate.
   it("refuses the whole crate when an id is unknown, naming it", async () => {
     const { ctx } = library();
     const ids = await idsByTitle(ctx);
@@ -86,7 +88,9 @@ describe("stage_crate", () => {
     }
   });
 
-  // Spec 4.2: a streaming track cannot be written into a crate by this protocol.
+  // A streaming track (or one third_party_type marks as remote) has no
+  // location on the boot disk, so this protocol refuses it before it ever
+  // reaches root.sqlite.
   it("refuses the whole crate when a track is streaming, naming it", async () => {
     const { ctx } = library();
     const ids = await idsByTitle(ctx);
@@ -101,8 +105,9 @@ describe("stage_crate", () => {
     }
   });
 
-  // Spec 4.2: a track on another volume belongs to a different location store,
-  // not to this root.sqlite.
+  // A track on another volume belongs to a different location store, not to
+  // this root.sqlite -- writing it here would point a crate at a track this
+  // library's root.sqlite has no location row for.
   it("refuses a track that lives on another location", async () => {
     const { ctx, masterPath } = library();
     const m = new DatabaseSync(masterPath);
@@ -125,8 +130,9 @@ describe("stage_crate", () => {
     }
   });
 
-  // Ruling 10 part C.3: portable_id itself can say streaming even when a
-  // fixture leaves third_party_type at its default of 0.
+  // portable_id itself can say streaming even when a fixture leaves
+  // third_party_type at its default of 0 -- isStreamingPortableId is the
+  // check that still catches it.
   it("refuses a track whose portable_id is a streaming URL, regardless of third_party_type", async () => {
     const { ctx } = library({
       tracks: [
@@ -148,9 +154,8 @@ describe("stage_crate", () => {
     }
   });
 
-  // Ruling 10 part C.1: no connection row names root.sqlite at all -- an
-  // unfamiliar schema, distinct from a track that is genuinely on another
-  // disk.
+  // No connection row names root.sqlite at all -- an unfamiliar schema,
+  // distinct from a track that is genuinely on another disk.
   it("says the library disk is unknown when no connection row names root.sqlite", async () => {
     const { ctx, masterPath } = library();
     const m = new DatabaseSync(masterPath);
@@ -167,9 +172,9 @@ describe("stage_crate", () => {
     }
   });
 
-  // Ruling 10 part C.2: an unreadable live root.sqlite is its own reason, not
-  // the generic snapshot_failed that a thrown error would otherwise surface
-  // as (that code names the snapshot copy, not root.sqlite).
+  // An unreadable live root.sqlite is its own reason, not the generic
+  // snapshot_failed that a thrown error would otherwise surface as (that
+  // code names the snapshot copy, not root.sqlite).
   it("refuses when root.sqlite cannot be read, rather than reporting a snapshot failure", async () => {
     const { ctx, rootPath } = library();
     writeFileSync(rootPath, "not a database");
@@ -182,9 +187,9 @@ describe("stage_crate", () => {
     }
   });
 
-  // Ruling 10 part A: two server instances must not be able to stage over
-  // each other's crate. Strengthened per the second review: a crate already
-  // staged before the lock is held must survive a busy attempt untouched.
+  // Two server instances must not be able to stage over each other's crate:
+  // a crate already staged before the lock is held must survive a busy
+  // attempt untouched.
   it("refuses to stage while another instance holds the write lock, and stages nothing", async () => {
     const { ctx, dir } = library();
     const ids = await idsByTitle(ctx);
@@ -206,11 +211,10 @@ describe("stage_crate", () => {
     expect(stage.crates.map((c) => c.name)).toEqual(["A"]);
   });
 
-  // Second review of Ruling 10: the try/catch that maps a thrown error from
-  // reading root.sqlite to busy/root_unreadable must not also wrap the
-  // write-lock section. A bug there (simulated by making saveStage throw
-  // instead of returning a SeratoError) must propagate to readSession's own
-  // handler, not come back mislabelled as a root.sqlite problem.
+  // The try/catch that maps a thrown error from reading root.sqlite to busy/root_unreadable must
+  // not also wrap the write-lock section. A bug there (simulated by making saveStage throw
+  // instead of returning a SeratoError) must propagate to readSession's own handler, not come
+  // back mislabelled as a root.sqlite problem.
   it("does not mislabel a bug in the stage section as a root.sqlite problem", async () => {
     const { ctx } = library();
     const ids = await idsByTitle(ctx);
@@ -239,7 +243,8 @@ describe("stage_crate", () => {
     expect(r.warnings).toEqual([expect.objectContaining({ code: "duplicates_removed" })]);
   });
 
-  // Spec 4.2: at staging a name conflict is a warning; at apply it refuses.
+  // At staging a name conflict is a warning, not a refusal -- only at apply
+  // does the same conflict refuse the whole batch.
   it("stages a name that already exists, with a preview warning", async () => {
     const { ctx } = library({
       tracks: [{ externalId: 1, portableId: "Users/x/1.flac", name: "Rain" }],
@@ -251,8 +256,8 @@ describe("stage_crate", () => {
     expect(r.warnings).toEqual([expect.objectContaining({ code: "crate_name_conflict_preview" })]);
   });
 
-  // Decision 8: a second crate of the same name would fail the whole batch at
-  // apply, so it is refused here instead.
+  // A second crate of the same name would fail the whole batch at apply, so
+  // it is refused here instead.
   it("refuses a name that is already staged", async () => {
     const { ctx } = library();
     const ids = await idsByTitle(ctx);
@@ -262,7 +267,8 @@ describe("stage_crate", () => {
     if (isSeratoError(r)) expect(r.error.details?.reason).toBe("already_staged");
   });
 
-  // Decision 1: a moved generation is a warning, not a refusal.
+  // A moved generation is a warning, not a refusal: staging must still work
+  // while Serato is running and the library keeps changing underneath it.
   it("stages against a moved generation and says so", async () => {
     const { ctx } = library();
     const ids = await idsByTitle(ctx);

@@ -29,8 +29,8 @@ export async function discardChanges(
   const lib = resolveLibrary({ library: ctx.library, roots: ctx.roots });
   if (isSeratoError(lib)) return lib;
 
-  // Ruling 10 part A.2: load-modify-save with no lock lets a concurrent
-  // stage_crate or discard_changes silently drop the other's write.
+  // Load-modify-save with no lock lets a concurrent stage_crate or
+  // discard_changes silently drop the other's write.
   const lock = acquireWriteLock(ctx.stateDir, lib.uuid);
   if (isSeratoError(lock)) return lock;
   try {

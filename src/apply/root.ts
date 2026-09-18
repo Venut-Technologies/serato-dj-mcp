@@ -6,7 +6,7 @@ import { ANCHOR_SPACE_NAME } from "../read/crates.js";
 
 export type Anchors = { spaceId: number; rootContainerId: number };
 
-/** Spec 5.1.1. */
+/** The tables root.sqlite must have for this protocol to write to it. */
 export const REQUIRED_ROOT_TABLES: readonly string[] = [
   "serato",
   "master",
@@ -46,11 +46,11 @@ export function checkRootSchema(root: DatabaseSync): null | SeratoError {
 }
 
 /**
- * Spec 5.2, both queries Serato's own. The space by name (space is UNIQUE on
- * name COLLATE NOCASE, so 0 or 1 rows); the root container by parent_id = 0,
- * never by name -- its name is generated as "<space> root", and UNIQUE
- * (parent_id, name, type) does not stop a user crate of that name at another
- * type.
+ * Both queries mirror how Serato itself resolves them. The space by name
+ * (space is UNIQUE on name COLLATE NOCASE, so 0 or 1 rows); the root
+ * container by parent_id = 0, never by name -- its name is generated as
+ * "<space> root", and UNIQUE (parent_id, name, type) does not stop a user
+ * crate of that name at another type.
  */
 export function findAnchors(root: DatabaseSync): Anchors | SeratoError {
   const spaces = root
@@ -79,10 +79,11 @@ export function findAnchors(root: DatabaseSync): Anchors | SeratoError {
 }
 
 /**
- * Spec 5.3: portable_id -> root.asset.id (unique index on portable_id COLLATE
- * NOCASE, so this is one index probe per track) -> space_asset.id by
- * (asset_id, space_id). A track without that space_asset row is unresolvable:
- * v1 never creates asset or space_asset rows (spec 2.4, 5.9).
+ * portable_id -> root.asset.id (unique index on portable_id COLLATE NOCASE,
+ * so this is one index probe per track) -> space_asset.id by (asset_id,
+ * space_id). A track without that space_asset row is unresolvable: this
+ * server's write path only ever inserts container and container_asset rows,
+ * never asset or space_asset ones.
  */
 export function resolveSpaceAssets(
   root: DatabaseSync,
@@ -104,8 +105,8 @@ export function resolveSpaceAssets(
 }
 
 /** Folds case the way container's UNIQUE(parent_id, name COLLATE NOCASE,
- *  type) does -- measured on a copy: 'sErAtO dEmO tRaCkS' collides with
- *  'Serato Demo Tracks' (spec 5.4). */
+ *  type) does -- measured on a copy of a real library: 'sErAtO dEmO tRaCkS'
+ *  collides with 'Serato Demo Tracks'. */
 export function existingCrateId(
   root: DatabaseSync,
   rootContainerId: number,
@@ -120,9 +121,9 @@ export function existingCrateId(
 }
 
 /**
- * Spec 3.4. Informational since P4 amendment 2: apply re-validates what the
- * crate depends on instead of refusing on this value, and reports a change as
- * a warning. Reads serato.revision only -- never the master table, whose
+ * Informational only, not a gate: apply re-validates what the crate depends
+ * on instead of refusing on this value, and reports a change as a warning.
+ * Reads serato.revision only -- never the master table, whose
  * last_sync_secret does not fit a JavaScript number (measured 2026-09-14).
  */
 export function rootGeneration(root: DatabaseSync, rootPath: string, libraryId: string): string {

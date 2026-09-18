@@ -34,8 +34,8 @@ describe("get_tracks", () => {
     expect(r.generation).toMatch(/^[0-9a-f]{12}$/);
   });
 
-  // Grounding (spec 3.5): the caller asked in an order, and matching that
-  // order is how it lines results up with its own list.
+  // Grounding: the caller asked in an order, and matching that order is how
+  // it lines results up with its own list.
   it("answers in the order the ids were given", async () => {
     const c = ctx();
     const all = await searchTracks({ sort: "added:asc" }, c);

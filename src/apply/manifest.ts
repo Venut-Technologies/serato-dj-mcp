@@ -13,9 +13,10 @@ export type ManifestCrate = {
 };
 
 /**
- * One line per apply, with every crate it wrote -- a direct consequence of P4
- * decision 3 (one transaction for the whole batch). Spec 5.6 sketched a line
- * per crate, written when every apply created exactly one.
+ * One line per apply, with every crate it wrote: the manifest line matches
+ * the unit of atomicity, one transaction for the whole batch, not the crate
+ * count. An earlier per-crate design assumed every apply created exactly one
+ * crate, which need not hold.
  */
 export type ManifestEntry = {
   schema_version: 1;
@@ -24,9 +25,9 @@ export type ManifestEntry = {
   library_id: string;
   crates: ManifestCrate[];
   backup_paths: BackupPaths;
-  /** "aborted" is not in spec 5.6, which had only intent and committed: a
-   *  refusal found inside the transaction is known not to be committed, and
-   *  leaving it as an intent would make it look like a crash. */
+  /** "aborted" is a state beyond just "intent" and "committed": a refusal
+   *  found inside the transaction is known not to be committed, and leaving
+   *  it as an intent would make it look like a crash. */
   commit_state: "intent" | "committed" | "aborted";
   abort_reason?: string;
 };
@@ -93,8 +94,8 @@ function update(
   return rewrite(stateDir, libraryId, entries);
 }
 
-/** Written BEFORE BEGIN (spec 5.1.5), so a crash between BEGIN and COMMIT
- *  leaves evidence of what was being attempted. */
+/** Written BEFORE BEGIN, so a crash between BEGIN and COMMIT leaves evidence
+ *  of what was being attempted. */
 export function writeIntent(stateDir: string, entry: ManifestEntry): true | SeratoError {
   return update(stateDir, entry.library_id, (existing) => [
     ...existing,

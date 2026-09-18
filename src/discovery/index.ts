@@ -77,9 +77,9 @@ export function detectLibrary(dir: string): LibraryInfo | null {
  * expanded -- the same list discover() itself computes internally, exposed
  * so a caller that already has a successful LibraryInfo[] (so discover()
  * itself has no error to attach `searched` to) can still report where it
- * looked. Spec 6 makes `searched` mandatory on library_not_found, and that
- * requirement does not stop being true just because *some* location, even
- * an unusable one (e.g. a 3.x library), was found.
+ * looked. `searched` is mandatory on library_not_found, and that stays true
+ * even when *some* location, even an unusable one (e.g. a 3.x library),
+ * was found.
  */
 export function searchLocations(opts: { library?: string; roots?: string[] }): string[] {
   if (opts.library) return [expandHome(opts.library)];
@@ -130,10 +130,10 @@ export type ResolvedLibrary = LibraryInfo & { masterPath: string };
  * Picks the one library a tool should read, or says precisely why it cannot.
  *
  * Lives here rather than in the server so that every tool resolves its
- * library the same way. In P1 it was inline in server.ts, which the tool
- * layer cannot import (spec 3.1), so list_libraries resolved for itself
- * while run_sql was handed a finished path -- two answers to one question,
- * with only P2's nine further tools to multiply them by.
+ * library the same way. Early on it was inline in server.ts, which the tool
+ * layer cannot import, so list_libraries resolved for itself while run_sql
+ * was handed a finished path -- two answers to one question, and nine
+ * further tools only multiplied them.
  *
  * The distinctions below are the whole reason this is not a one-liner:
  * found[0] can be a 3.x directory or an unreadable master.sqlite, and
@@ -152,9 +152,9 @@ export function resolveLibrary(opts: {
 
   const candidates = found.map((l) => ({ path: l.path, version: l.version, status: l.status }));
   const detected3x = found.find((l) => l.version === "3.x");
-  // A 3.x-only result is not "not found": spec 6 and 12 promise a clear
-  // refusal naming the detected version, not a code that reads as "look
-  // elsewhere" and invites a retry against the same path.
+  // A 3.x-only result is not "not found": it needs a clear refusal naming
+  // the detected version, not a code that reads as "look elsewhere" and
+  // invites a retry against the same path.
   if (detected3x) {
     return err("unsupported_version", "found a Serato 3.x library; only 4.x is supported", {
       detected_version: detected3x.version,

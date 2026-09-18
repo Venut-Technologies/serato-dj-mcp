@@ -2,7 +2,7 @@
  * Tonality, as Camelot.
  *
  * Serato stores it twice and neither column alone is enough. Measured
- * 2026-09-06 across 118 real tracks (spec 2.6):
+ * 2026-09-06 across 118 real tracks:
  *
  *   key_value only ............ 39 of 118
  *   key_value or text `key` ... 114 of 118
@@ -37,12 +37,14 @@ export type Tonality = { camelot: string; source: KeySource };
  *
  * One table, not two: the musical names below and Serato's integer
  * key_value index the same wheel, so deriving both from one array is what
- * keeps them from drifting apart. Verified against the two conversions
- * recorded in spec 2.6 -- D -> 21 -> 10B and Ebm -> 1 -> 2A -- and then
- * cross-checked against Serato itself on 2026-09-06: of the 39 real tracks
- * carrying both a key_value and a text key, fromKeyValue() and fromKeyText()
- * agreed on all 39, across 14 distinct spellings (Abm, Am, Bbm, Bm, Cm, D,
- * E, Ebm, Em, F, F#m, Fm, Gm, and the Camelot passthrough 9A).
+ * keeps them from drifting apart. Verified against two known conversions --
+ * D -> 21 -> 10B and Ebm -> 1 -> 2A.
+ *
+ * Separately, cross-checked against Serato itself on 2026-09-06: of the 39
+ * real tracks carrying both a key_value and a text key, fromKeyValue() and
+ * fromKeyText() agreed on all 39, across 14 distinct spellings (Abm, Am,
+ * Bbm, Bm, Cm, D, E, Ebm, Em, F, F#m, Fm, Gm, and the Camelot passthrough
+ * 9A).
  */
 const MINOR = ["Abm", "Ebm", "Bbm", "Fm", "Cm", "Gm", "Dm", "Am", "Em", "Bm", "F#m", "Dbm"];
 const MAJOR = ["B", "F#", "Db", "Ab", "Eb", "Bb", "F", "C", "G", "D", "A", "E"];
@@ -99,8 +101,8 @@ export function fromKeyText(text: string): Tonality | null {
   if (openKey) {
     const n = Number(openKey[1]);
     if (n < 1 || n > 12) return null;
-    // Spec 2.6, verified on all 75 rows that carry it: 1m -> 8A, 6m -> 1A,
-    // 11m -> 6A, 12d -> 7B.
+    // Verified on all 75 rows that carry it: 1m -> 8A, 6m -> 1A, 11m -> 6A,
+    // 12d -> 7B.
     return {
       camelot: `${((n + 6) % 12) + 1}${openKey[2] === "m" ? "A" : "B"}`,
       source: "open_key",
@@ -123,8 +125,7 @@ export function fromKeyText(text: string): Tonality | null {
 }
 
 /**
- * The layered rule from spec 2.6: key_value when it is set, then the text,
- * then nothing.
+ * The layered rule: key_value when it is set, then the text, then nothing.
  *
  * `source` travels with the answer because the two are not equally
  * trustworthy -- key_value is Serato's own parse, the text is ours -- and a

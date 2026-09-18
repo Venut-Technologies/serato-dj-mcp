@@ -35,9 +35,9 @@ describe("findAnchors", () => {
     db.close();
   });
 
-  // Spec 5.2: the root container's name is generated ("<space> root") and a
-  // user may create a crate with that very name at another type. Finding the
-  // anchor by name would then be ambiguous; by parent_id = 0 it is not.
+  // The root container's name is generated ("<space> root") and a user may
+  // create a crate with that very name at another type. Finding the anchor
+  // by name would then be ambiguous; by parent_id = 0 it is not.
   it("is not fooled by a crate named like the root container", () => {
     const { db } = rootDb();
     db.prepare(
@@ -92,7 +92,8 @@ describe("resolveSpaceAssets", () => {
   });
 
   // A track in the database but not in the target space has no space_asset
-  // row; v1 never creates one (spec 2.4), so it counts as unresolvable.
+  // row; this server's write path never creates one (it only ever inserts
+  // container and container_asset rows), so it counts as unresolvable.
   it("does not resolve a track that is not in the target space", () => {
     const { db } = rootDb({ tracks: [{ externalId: 1, portableId: "Users/x/a.flac", name: "A" }] });
     expect(resolveSpaceAssets(db, 1, ["Users/x/a.flac"]).missing).toEqual(["Users/x/a.flac"]);

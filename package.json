@@ -1,13 +1,44 @@
 {
   "name": "serato-dj-mcp",
   "version": "0.1.0",
-  "description": "MCP server for the Serato DJ 4.x library",
+  "description": "MCP server for Serato DJ libraries — search and audit tracks, inspect crates, and safely stage crate creation.",
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "serato",
+    "serato-dj",
+    "dj",
+    "crates",
+    "music-library",
+    "sqlite"
+  ],
+  "homepage": "https://github.com/Venut-Technologies/serato-dj-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/Venut-Technologies/serato-dj-mcp/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Venut-Technologies/serato-dj-mcp.git"
+  },
   "license": "MIT",
-  "author": "Mikhail Chereshnev <venuttv@gmail.com>",
+  "author": "Mikhail Chereshnev",
+  "contributors": [
+    {
+      "name": "Venut Technologies",
+      "email": "hello@venut.tech"
+    }
+  ],
   "type": "module",
-  "bin": { "serato-dj-mcp": "dist/index.js" },
-  "files": ["dist"],
-  "engines": { "node": ">=22.16.0" },
+  "bin": {
+    "serato-dj-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22.16.0"
+  },
   "scripts": {
     "build": "tsc",
     "prepare": "npm run build",

@@ -60,11 +60,11 @@ describe("readSession", () => {
     const r = await readSession(ctx(), (h) => [...h.volumeRoots.entries()]);
     if (isSeratoError(r)) throw new Error("unexpected error");
     // The fixture's connection row points at root.sqlite, whose volume root
-    // is "/" (spec 2.3).
+    // is "/".
     expect(r).toEqual([[2, "/"]]);
   });
 
-  // Spec 3.3: unknown schemas warn and degrade, never refuse. If the
+  // Unknown schemas warn and degrade, never refuse. If the
   // connection table is missing or renamed (common in unknown versions),
   // volumeRoots() returns an empty map and the session succeeds.
   it("degrades gracefully when connection table is missing", async () => {
@@ -96,8 +96,8 @@ describe("readSession", () => {
     }
   });
 
-  // Spec 3.3: an unknown user_version is a warning, never a refusal --
-  // Serato has 51 migrations in its own history.
+  // An unknown user_version is a warning, never a refusal -- Serato has 51
+  // migrations in its own history.
   it("warns about an unknown schema version instead of refusing", async () => {
     const dir = tmp();
     makeMasterFixture(dir, { tracks: [], userVersion: 999 });

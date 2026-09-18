@@ -32,3 +32,11 @@ CLAUDE.md
 # npm
 *.tgz
 npm-debug.log*
+
+# A Serato library's own files, in case one is ever staged by accident.
+# The test fixtures are .sql, never these.
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.crate
+database V2

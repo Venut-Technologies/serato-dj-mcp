@@ -17,17 +17,14 @@ import { type ReadCtx, readSession, schemaWarnings } from "../read/session.js";
 import { keysetPredicate, parseSort, SORT_FIELDS, sortExpressions } from "../read/sort.js";
 
 /**
- * Bounds on model-supplied strings and arrays that feed straight into SQL
- * text or parameter lists (review 2026-09-13, finding 1). Uncapped, `q`
- * builds one ten-clause OR group per whitespace token, ANDed together:
- * measured at 988 tokens that all match up to the last, the query itself ran
- * for tens of seconds with no way to interrupt it (node:sqlite is
- * synchronous); at 989 tokens SQLite's prepare() throws "Expression tree is
- * too large (maximum depth 1000)", which readSession's outer catch turns
- * into `snapshot_failed` -- telling the model the snapshot copy is broken
- * rather than that its argument was too big. Twelve tokens covers any real
- * search and stays far enough below 988 that the second failure mode is
- * unreachable.
+ * Bounds on model-supplied strings and arrays that feed straight into SQL text or parameter
+ * lists. Uncapped, `q` builds one ten-clause OR group per whitespace token, ANDed together:
+ * measured at 988 tokens that all match up to the last, the query itself ran for tens of
+ * seconds with no way to interrupt it (node:sqlite is synchronous); at 989 tokens SQLite's
+ * prepare() throws "Expression tree is too large (maximum depth 1000)", which readSession's
+ * outer catch turns into `snapshot_failed` -- telling the model the snapshot copy is broken
+ * rather than that its argument was too big. Twelve tokens covers any real search and stays far
+ * enough below 988 that the second failure mode is unreachable.
  */
 const MAX_Q_LENGTH = 512;
 const MAX_Q_TOKENS = 12;
@@ -66,7 +63,7 @@ export const searchTracksInput = z
     // The DDL carries CHECK (rating IS NULL OR rating BETWEEN 0 AND 1): rating
     // is a 0..1 REAL, not 0..5 stars. Bounding min/max here turns the obvious
     // wrong guess (e.g. min: 4) into an invalid_argument the model can act
-    // on, instead of a silent empty page (review 2026-09-13, finding 3).
+    // on, instead of a silent empty page.
     rating: z
       .object({
         min: z.number().min(0).max(1).optional(),
@@ -92,8 +89,8 @@ export const searchTracksInput = z
     limit: z.number().int().min(1).max(MAX_TRACK_LIMIT).optional(),
     cursor: z.string().max(MAX_CURSOR_LENGTH).optional(),
   })
-  // The only cross-field check that has to live here: the other two the spec
-  // names are decided where the knowledge is -- bpm.around against min/max in
+  // The only cross-field check that has to live here: the other two are
+  // decided where the knowledge is -- bpm.around against min/max in
   // filters.ts, and the cursor against its query in cursor.ts.
   .refine((v) => !(v.crate?.id !== undefined && v.crate?.name !== undefined), {
     error: "crate.id and crate.name cannot both be given",
@@ -102,7 +99,7 @@ export const searchTracksInput = z
   // A per-field .max() on q would report "schema_violation" -- true but
   // useless, since the model cannot tell a too-long q from a too-long
   // anything else. This gets its own reason so the model knows exactly what
-  // to shorten (finding 1).
+  // to shorten.
   .refine((v) => v.q === undefined || qTokenCount(v.q) <= MAX_Q_TOKENS, {
     error: `q has too many tokens (max ${MAX_Q_TOKENS})`,
     params: { reason: "too_many_tokens" },

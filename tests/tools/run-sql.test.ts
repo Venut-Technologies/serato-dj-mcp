@@ -185,8 +185,8 @@ describe("run_sql", () => {
     if (isSeratoError(r)) expect(r.error.code).toBe("invalid_argument");
   });
 
-  // Spec 4.0: every successful response carries generation except
-  // list_libraries. ok()'s generation argument previously had no production
+  // Every successful response carries generation except list_libraries.
+  // ok()'s generation argument previously had no production
   // call site that ever passed a real value (list_libraries always calls it
   // with undefined), so this is what first exercises that path at all.
   it("carries the snapshot's generation", async () => {

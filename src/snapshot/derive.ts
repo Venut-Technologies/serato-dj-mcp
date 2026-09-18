@@ -39,8 +39,9 @@ export function buildDerived(db: DatabaseSync): void {
   // that already had a table of this name would keep ITS shape, the prepared
   // INSERT below would fail on unknown columns, and the throw would surface
   // as snapshot_failed for every read of that library, forever -- the exact
-  // opposite of spec 3.3's "an unfamiliar schema warns and degrades". The
-  // mcp_ prefix makes a collision with a future Serato table unlikely, but
+  // opposite of this server's own rule that an unfamiliar schema warns and
+  // degrades. The mcp_ prefix makes a collision with a future Serato table
+  // unlikely, but
   // this is a copy we own outright, so owning the table is free.
   db.exec("DROP TABLE IF EXISTS mcp_key");
   db.exec(`CREATE TABLE mcp_key (
@@ -54,8 +55,9 @@ export function buildDerived(db: DatabaseSync): void {
   const columns = new Set(
     (db.prepare("PRAGMA table_info('asset')").all() as { name: string }[]).map((r) => r.name),
   );
-  // Schema drift is expected (51 migrations in Serato's own history, spec
-  // 3.3): an asset table without these columns is not an error, it just
+  // Schema drift is expected (51 migrations in Serato's own history): this
+  // server's own rule is to warn and degrade on an unfamiliar schema, not to
+  // refuse, so an asset table without these columns is not an error, it just
   // yields no keys.
   if (!columns.has("id")) return;
   // KEY_COLUMNS, not two string literals: read/key.ts owns which columns

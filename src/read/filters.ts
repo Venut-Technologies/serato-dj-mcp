@@ -11,10 +11,9 @@ export type FilterArgs = {
   flags?: { analyzed?: boolean; missing?: boolean; streaming?: boolean };
 };
 
-/** Free-text search covers these (spec 4.1). Each is matched twice: against
+/** Free-text search covers these fields. Each is matched twice: against
  *  Serato's own normalised copy and against the raw column lowercased --
- *  parity with serato_str_norm is unreachable, so both are tried (spec
- *  2.9.1). */
+ *  parity with serato_str_norm is unreachable, so both are tried. */
 export const SEARCH_COLUMNS: readonly string[] = ["name", "artist", "album", "genre", "comments"];
 
 /** The pitch range of a typical CD deck, and the window a DJ means by "around
@@ -47,7 +46,7 @@ export function compatibleCamelot(cell: string): string[] | null {
  *  percent sign rather than matching the whole library. Exported: sort.ts
  *  needs the identical rule for its relevance ranking, and two copies of an
  *  escaping helper is the kind of duplication where divergence goes unnoticed
- *  until it matters (review 2026-09-13, finding 4). */
+ *  until it matters (found in review, 2026-09-13). */
 export function likeLiteral(value: string): string {
   return value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
 }
@@ -63,13 +62,13 @@ function unixSeconds(value: string): number | null {
  * Every filter this schema cannot express is reported, never dropped in
  * silence.
  *
- * The whole-branch review of P2 found this module was the only one of three
- * siblings without that discipline: resolveFields warns with
- * `field_unavailable` and sortExpressions with `sort_unavailable`, while a
- * dropped predicate here turned `bpm: {min: 122, max: 126}` on a schema
- * without a bpm column into THE WHOLE LIBRARY, presented as a filtered
- * answer. Spec 3.5's rule is that nothing is dropped silently, and a
- * filtered read is exactly where a silent drop misleads most.
+ * A whole-branch review found this module was the only one of three siblings
+ * without that discipline: resolveFields warns with `field_unavailable` and
+ * sortExpressions with `sort_unavailable`, while a dropped predicate here
+ * turned `bpm: {min: 122, max: 126}` on a schema without a bpm column into
+ * THE WHOLE LIBRARY, presented as a filtered answer. The rule is that
+ * nothing is dropped silently, and a filtered read is exactly where a silent
+ * drop misleads most.
  *
  * Argument validation, in contrast, no longer depends on the schema at all:
  * a self-contradictory argument is refused whether or not the column it
@@ -93,8 +92,8 @@ export function buildFilters(
   };
 
   if (args.q !== undefined && args.q.trim() !== "") {
-    // Decision 2 (2026-09-07): tokens through AND. Each token must appear in
-    // at least one searched field; word order does not matter.
+    // Tokens through AND (decided 2026-09-07): each token must appear in at
+    // least one searched field; word order does not matter.
     for (const token of args.q.trim().split(/\s+/)) {
       const pattern = `%${likeLiteral(token.toLowerCase())}%`;
       const clauses: string[] = [];

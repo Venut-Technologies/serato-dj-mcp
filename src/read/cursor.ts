@@ -50,7 +50,7 @@ export function nextCursorFrom(
   return encodeCursor({ fp, gen: generation, key });
 }
 
-/** Spec 4.3: 25 per track page, 200 for crates, 200 the ceiling everywhere. */
+/** 25 per track page, 200 for crates, 200 the ceiling everywhere. */
 export const MAX_TRACK_LIMIT = 200;
 export const DEFAULT_TRACK_LIMIT = 25;
 export const MAX_CRATE_LIMIT = 200;
@@ -61,9 +61,9 @@ export const DEFAULT_CRATE_LIMIT = 200;
  * key), a few hundred bytes at most. 4096 is generous headroom above that
  * while still bounding it: an unbounded `cursor` reaches checkCursor's
  * JSON.parse with whatever size the caller sent, one more model-supplied
- * string with no ceiling (review 2026-09-13, finding 1). Shared by every
- * tool that takes a cursor, so the bound cannot be reached through one tool
- * and missed through another.
+ * string with no ceiling (found in review, 2026-09-13). Shared by every tool
+ * that takes a cursor, so the bound cannot be reached through one tool and
+ * missed through another.
  */
 export const MAX_CURSOR_LENGTH = 4096;
 
@@ -72,10 +72,10 @@ export const MAX_CURSOR_LENGTH = 4096;
  *
  * A changed query is a refusal: continuing from a position that belongs to a
  * different result set returns rows that were never in this one. A changed
- * generation is only a warning (decision 4, 2026-09-07) -- the position is
- * still meaningful on the new snapshot because pagination is keyset, not
- * offset, and refusing would break the second page of every listing taken
- * while Serato is running.
+ * generation is only a warning (decided 2026-09-07) -- the position is still
+ * meaningful on the new snapshot because pagination is keyset, not offset,
+ * and refusing would break the second page of every listing taken while
+ * Serato is running.
  */
 export function checkCursor(
   raw: string,

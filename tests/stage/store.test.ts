@@ -70,9 +70,9 @@ describe("stage store", () => {
     }
   });
 
-  // Ruling 10 part B: before this, only Array.isArray(crates) was checked, so
-  // an empty crate object passed loadStage and reached discard/preview as a
-  // Stage with undefined fields.
+  // Before this, only Array.isArray(crates) was checked, so an empty crate
+  // object passed loadStage and reached discard/preview as a Stage with
+  // undefined fields.
   it("refuses a stage whose crate is missing required fields", () => {
     const dir = tmp();
     saveStage(dir, stage());

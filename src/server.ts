@@ -74,8 +74,8 @@ const VERSION = "0.1.0";
 
 const RO = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
 
-/** Writes are additive -- a new crate, never an overwrite or a delete (spec
- *  5.9) -- so destructiveHint stays false; none of them is idempotent. */
+/** Writes are additive -- a new crate, never an overwrite or a delete --
+ *  so destructiveHint stays false; none of them is idempotent. */
 const WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false } as const;
 
 /** discard_changes deletes the user's staged work -- the one write tool
@@ -136,9 +136,9 @@ function describeTool(
  * error: Invalid arguments for tool run_sql: Too big: expected number to be
  * <=500 at limit". That message carries no `error.code`, so a malformed
  * argument reached the model in a shape nothing else in this server uses,
- * and no helper of ours could ever see it: exactly the defect spec 6 names
- * when it asks for one argument-parsing helper across all tools. Owning the
- * dispatch is what lets parseToolArgs (../args.ts) be that helper.
+ * and no helper of ours could ever see it: exactly the defect that having
+ * one argument-parsing helper across all tools is meant to prevent. Owning
+ * the dispatch is what lets parseToolArgs (../args.ts) be that helper.
  *
  * Everything McpServer did for us that this server actually uses is a dozen
  * lines: a name -> descriptor listing, a name lookup, and a call. The rest
@@ -265,8 +265,8 @@ export function createServer(cli: Cli): Server {
     });
   }
 
-  // Spec 4.2: registered only when asked, like run_sql -- a write tool that
-  // exists and refuses still costs context and invites the model to try it.
+  // Registered only when asked, like run_sql -- a write tool that exists and
+  // refuses still costs context and invites the model to try it.
   if (cli.allowWrites) {
     const writeCtx = {
       library: cli.library,

@@ -24,8 +24,8 @@ const LOCATION_DB_SUFFIX = "/_Serato_/Library/location.sqlite";
  * is carried by its filename: location.sqlite names a volume store (root is
  * the path before /_Serato_/Library/), and root.sqlite names the boot-disk
  * store (root is always /).
- *   /Users/v/Library/Application Support/Serato/Library/root.sqlite    -> "/"
- *   /Volumes/EXTDISK/_Serato_/Library/location.sqlite                    -> "/Volumes/EXTDISK"
+ *   /Users/v/Library/Application Support/Serato/Library/root.sqlite     -> "/"
+ *   /Volumes/EXTDISK/_Serato_/Library/location.sqlite                   -> "/Volumes/EXTDISK"
  */
 export function volumeRootFromDatabaseUri(uri: string): string {
   if (uri.endsWith(LOCATION_DB_SUFFIX)) return uri.slice(0, -LOCATION_DB_SUFFIX.length);

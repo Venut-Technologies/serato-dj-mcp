@@ -1,0 +1,65 @@
+name: Bug report
+description: Report a problem with serato-dj-mcp
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Do not attach `master.sqlite`, `root.sqlite`, `database V2` or a `.crate` file, and do
+        not paste rows from them.** They contain your library, your file paths and your
+        listening history. Describe the shape of the problem instead; if a maintainer needs a
+        sample, they will ask for a synthetic one.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      placeholder: |
+        Tool: search_tracks
+        Arguments: {"bpm": {"min": 120, "max": 126}, "key": {"camelot": ["8A", "9A"]}}
+        Error: snapshot_failed
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+
+  - type: input
+    id: serato-and-schema-version
+    attributes:
+      label: Serato version and library schema version
+      description: "`list_libraries` reports the schema version."
+      placeholder: "Serato DJ Lite 4.0.9, schema 202"
+    validations:
+      required: true
+
+  - type: input
+    id: server-version
+    attributes:
+      label: Server version and how you run it
+      placeholder: "commit abc1234, node dist/index.js --allow-writes, via Claude Desktop"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Windows
+        - Linux
+    validations:
+      required: true
+
+  - type: textarea
+    id: anything-else
+    attributes:
+      label: Anything else
+      description: Redacted log lines are welcome.
+    validations:
+      required: false

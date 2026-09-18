@@ -76,7 +76,8 @@ describe("apply_changes", () => {
     const [entry] = readManifest(ctx.stateDir, libraryId);
     expect(entry.commit_state).toBe("committed");
     expect(entry.crates[0].container_id).toBe(r.applied[0].container_id);
-    // Decision 9: what was applied leaves the stage.
+    // What was applied leaves the stage: a crate that has already reached
+    // root.sqlite has nothing left to stage.
     expect(loadStage(ctx.stateDir, libraryId)).toBeNull();
   });
 
@@ -88,8 +89,8 @@ describe("apply_changes", () => {
     expect(crates()).toEqual([]);
   });
 
-  // Spec 4.2: an empty stage is a success with empty arrays -- and it must not
-  // take a backup of a library it is not going to write.
+  // An empty stage is a success with empty arrays -- and it must not take a
+  // backup of a library it is not going to write.
   it("treats an empty stage as success without touching anything", async () => {
     const { ctx } = await stagedLibrary([]);
     const r = await applyChanges({ confirm: true }, ctx);
@@ -100,7 +101,7 @@ describe("apply_changes", () => {
     expect(existsSync(join(ctx.stateDir, "backups"))).toBe(false);
   });
 
-  // Spec 5.1.3: refused before the backup, so a running Serato costs nothing.
+  // Refused before the backup, so a running Serato costs nothing.
   it("refuses while Serato is running, before taking any backup", async () => {
     const { ctx, masterPath, crates, libraryId } = await stagedLibrary();
     const m = new DatabaseSync(masterPath);
@@ -118,7 +119,7 @@ describe("apply_changes", () => {
     expect(stage.crates).toHaveLength(1);
   });
 
-  // Spec 5.1.2: a journal next to root.sqlite means an unfinished transaction.
+  // A journal next to root.sqlite means an unfinished transaction.
   it("refuses when root.sqlite has a hot journal", async () => {
     const { ctx, rootPath } = await stagedLibrary();
     writeFileSync(`${rootPath}-journal`, "x");
@@ -133,8 +134,8 @@ describe("apply_changes", () => {
     expect(readdirSync(ctx.stateDir)).not.toContain("backups");
   });
 
-  // Decision 9: a failed apply leaves the stage untouched, and the manifest
-  // records the attempt as aborted rather than as a crash-like intent.
+  // A failed apply leaves the stage untouched, and the manifest records the
+  // attempt as aborted rather than as a crash-like intent.
   it("keeps the stage and records the abort when the transaction refuses", async () => {
     const { ctx, rootPath, crates, libraryId } = await stagedLibrary();
     const db = new DatabaseSync(rootPath);
@@ -166,10 +167,9 @@ describe("apply_changes", () => {
     expect(readdirSync(ctx.stateDir)).not.toContain("backups");
   });
 
-  // Ruling 10 part A.3: the stage must be read only after the lock is held,
-  // by the same call that will clear it -- proven here by making the stage
-  // unreadable and showing that a held lock reports busy rather than reading
-  // (and reporting on) that corruption.
+  // The stage must be read only after the lock is held, by the same call that will clear it --
+  // proven here by making the stage unreadable and showing that a held lock reports busy rather
+  // than reading (and reporting on) that corruption.
   it("reports busy rather than reading a corrupted stage when the lock is held", async () => {
     const { ctx, libraryId, crates } = await stagedLibrary();
     writeFileSync(stagePath(ctx.stateDir, libraryId), "{not json");
@@ -250,12 +250,11 @@ describe("apply_changes", () => {
     expect(crates().map((c) => c.name)).toEqual(["Gigs 2026"]);
   });
 
-  // A4: markCommitted's own failure must still surface as a warning on an
-  // otherwise successful apply. The probe is consulted inside the
-  // transaction (spec 5.1.3's second check), by which point writeIntent has
-  // already created the manifest file -- corrupting it there, but not
-  // before, simulates the manifest becoming unwritable between intent and
-  // commit without ever failing writeIntent itself.
+  // A4: markCommitted's own failure must still surface as a warning on an otherwise successful
+  // apply. The probe is consulted inside the transaction too, a second check after the one that
+  // refuses before the backup, by which point writeIntent has already created the manifest file
+  // -- corrupting it there, but not before, simulates the manifest becoming unwritable between
+  // intent and commit without ever failing writeIntent itself.
   it("A4: emits manifest_not_updated and still clears the stage when markCommitted fails", async () => {
     const { ctx, masterPath, libraryId, crates } = await stagedLibrary();
     lockRow(masterPath);

@@ -68,17 +68,19 @@ export async function applyChanges(
   const lock = acquireWriteLock(ctx.stateDir, lib.uuid);
   if (isSeratoError(lock)) return lock;
   try {
-    // Ruling 10 part A.3: the stage must be read by the same holder of the
-    // lock that later clears it. Reading it before the lock leaves a window
-    // where a crate staged in that gap is applied over and then deleted by
-    // clearStage below, without ever having been applied itself.
+    // The stage must be read by the same holder of the lock that later
+    // clears it. Reading it before the lock leaves a window where a crate
+    // staged in that gap is applied over and then deleted by clearStage
+    // below, without ever having been applied itself.
     const stage = loadStage(ctx.stateDir, lib.uuid);
     if (isSeratoError(stage)) return stage;
     if (stage === null || stage.crates.length === 0) {
       return ok({ applied: [], backup_paths: null, restart_required: false });
     }
 
-    // Spec 5.1.1 and 5.1.2.
+    // Preconditions on root.sqlite itself, checked before anything else: it
+    // must exist, and it must carry no live journal from a write in progress
+    // or one that was interrupted.
     if (!existsSync(rootPath)) {
       return err("write_refused", "this library has no root.sqlite to write crates into", {
         reason: "root_missing",
@@ -99,16 +101,16 @@ export async function applyChanges(
       );
     }
 
-    // Spec 5.1.3, first check -- before the backup, so a running Serato costs
+    // Checked here first -- before the backup, so a running Serato costs
     // nothing. The transaction checks again after BEGIN IMMEDIATE.
     const running = checkSeratoClosed(lib.masterPath, ctx.probe);
     if (running !== null) return running;
 
-    // Spec 5.1.4: fail-closed.
+    // Fail-closed: no write proceeds without a verified backup.
     const backupPaths = await backupLibrary(lib.path, ctx.stateDir, lib.uuid);
     if (isSeratoError(backupPaths)) return backupPaths;
 
-    // Spec 5.1.5: intent before BEGIN.
+    // Intent recorded before BEGIN (see writeIntent's own doc for why).
     const opId = randomUUID();
     const intent = writeIntent(ctx.stateDir, {
       schema_version: 1,

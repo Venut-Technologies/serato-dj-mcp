@@ -28,7 +28,7 @@ describe("parseToolArgs", () => {
     expect(isSeratoError(r)).toBe(true);
     if (!isSeratoError(r)) return;
     expect(r.error.code).toBe("invalid_argument");
-    // Spec 6 makes `reason` mandatory for every invalid_argument.
+    // `reason` is mandatory for every invalid_argument.
     expect(r.error.details?.reason).toBe("schema_violation");
     expect(r.error.details?.issues).toEqual([
       expect.objectContaining({ path: "limit", code: "too_big" }),
@@ -47,11 +47,11 @@ describe("parseToolArgs", () => {
   });
 
   it("lets a cross-field check name its own reason", () => {
-    // This is how the refusals spec 4.1 requires -- `around` together with
+    // This is how cross-field refusals work -- `around` together with
     // `min`/`max`, `crate.id` together with `crate.name`, a cursor that does
     // not match its query -- get a specific reason without a second error
-    // path. Written here because P2 is what introduces them; the mechanism
-    // has to exist before the first tool needs it.
+    // path. Written here early, before any tool needed it, so the mechanism
+    // would already exist when one did.
     const cursorSchema = z
       .object({ query: z.string().optional(), cursor: z.string().optional() })
       .refine((v) => !(v.cursor !== undefined && v.query !== undefined), {

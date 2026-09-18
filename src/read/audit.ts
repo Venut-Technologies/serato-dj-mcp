@@ -4,8 +4,8 @@ import type { Warning } from "../envelope.js";
 import { isStreamingPortableId, portableIdToAbsolute } from "../paths.js";
 import { ANCHOR_SPACE_NAME } from "./crates.js";
 
-/** Spec 4.1: at most ten examples per check. A report is a diagnosis, not a
- *  dump -- the model asks a read tool for the rest. */
+/** At most ten examples per check. A report is a diagnosis, not a dump --
+ *  the model asks a read tool for the rest. */
 export const MAX_SAMPLES = 10;
 
 export type CheckResult = {
@@ -23,7 +23,7 @@ type CheckContext = {
   assetColumns: Set<string>;
   /** Checked the way session.ts checks before reading `connection`: a
    *  renamed table must warn and degrade, not throw and be reported as a
-   *  broken snapshot (spec 3.3). */
+   *  broken snapshot. */
   tables: Set<string>;
   volumeRoots: Map<number, string>;
   /** Off by default, and for a reason: see FILESYSTEM_CHECKS below. */
@@ -36,7 +36,7 @@ type CheckOutcome = { count: number; sample_ids?: number[]; sample_groups?: numb
 type Check = {
   name: string;
   /** Columns without which this check cannot run at all. A schema missing
-   *  one gets a warning and no result, never a wrong number (spec 3.3). */
+   *  one gets a warning and no result, never a wrong number. */
   columns: readonly string[];
   /** Tables beyond `asset` that the check's SQL names. */
   tables?: readonly string[];
@@ -50,8 +50,8 @@ type Check = {
 
 /**
  * Checks with a filesystem pass. The check itself still runs by default --
- * spec 4.1 makes only the *disk access* opt-in, and the database half
- * (Serato's own is_missing flag) is a free, real finding. Excluding the
+ * only the *disk access* is opt-in, and the database half (Serato's own
+ * is_missing flag) is a free, real finding. Excluding the
  * whole check made `check_filesystem: true` a silent no-op unless the caller
  * also named broken_paths, the opposite of what its own description
  * promised. Found by review 2026-09-14.
@@ -80,8 +80,8 @@ function countAndSample(
 }
 
 /**
- * Every group of tracks that look like the same recording, by either
- * criterion spec 4.1 names.
+ * Every group of tracks that look like the same recording, by either the tag
+ * criterion or the size/length criterion below.
  *
  * The tag criterion runs first because it is the one that finds real
  * re-imports: measured on the owner's library 2026-09-13, it found nine
@@ -193,7 +193,7 @@ function brokenPaths(ctx: CheckContext): CheckOutcome | undefined {
   const seenLocations = new Set<number>();
   for (const row of rows) {
     // A streaming id is not a filesystem path and must never be turned into
-    // one (spec 2.3).
+    // one.
     if (isStreamingPortableId(row.portable_id)) continue;
     if (!seenLocations.has(row.location_id)) {
       seenLocations.add(row.location_id);
@@ -212,9 +212,9 @@ function brokenPaths(ctx: CheckContext): CheckOutcome | undefined {
   // check_unavailable path follows below.
   if (seenLocations.size > 0 && checkedLocations === 0) return undefined;
 
-  // The count is the union spec 4.1 describes, but the two halves need
-  // different remedies -- relocate inside Serato, versus re-import -- so the
-  // split is stated rather than left for the caller to infer from one number.
+  // The count reported is the union of both halves, but they need different
+  // remedies -- relocate inside Serato, versus re-import -- so the split is
+  // stated rather than left for the caller to infer from one number.
   ctx.warnings.push({
     code: "broken_paths_breakdown",
     message: `${flagged.count} flagged missing by Serato, ${gone} more absent from disk`,
@@ -236,12 +236,12 @@ function brokenPaths(ctx: CheckContext): CheckOutcome | undefined {
  * The audit's checks, each with the exact criterion it claims.
  *
  * missing_key reads the derived mcp_key table rather than `key_value < 0`,
- * which is what spec 4.1 said before stage P2 existed. On the owner's
- * library that criterion counts 79 tracks, of which only 4 actually have no
- * key -- the other 75 have one this server can read and its own search
- * matches, so calling them "missing" would make the audit contradict the
- * search. Those 75 are a real and separate finding, and they get their own
- * check: Serato's own display and its own harmonic tools cannot see them.
+ * an earlier, simpler criterion. On the owner's library that simpler
+ * criterion counts 79 tracks, of which only 4 actually have no key -- the
+ * other 75 have one this server can read and its own search matches, so
+ * calling them "missing" would make the audit contradict the search. Those
+ * 75 are a real and separate finding, and they get their own check: Serato's
+ * own display and its own harmonic tools cannot see them.
  */
 export const CHECKS: readonly Check[] = [
   {
@@ -330,7 +330,7 @@ export const CHECKS: readonly Check[] = [
 export const CHECK_NAMES: readonly string[] = CHECKS.map((c) => c.name);
 
 /** Every check runs by default. Only broken_paths' DISK PASS is opt-in --
- *  its database half costs nothing and finds real breakage (spec 4.1). */
+ *  its database half costs nothing and finds real breakage. */
 export const DEFAULT_CHECK_NAMES: readonly string[] = CHECK_NAMES;
 
 export function runChecks(
@@ -340,7 +340,7 @@ export function runChecks(
   const results: CheckResult[] = [];
   const unavailable = (name: string, what: string, missing: string[]) => {
     // A check that cannot run reports nothing rather than a wrong number,
-    // and says why (spec 3.3).
+    // and says why.
     ctx.warnings.push({
       code: "check_unavailable",
       message: `this Serato schema cannot run the ${name} check`,

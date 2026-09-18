@@ -15,9 +15,8 @@ import { type ReadCtx, readSession, schemaWarnings } from "../read/session.js";
 
 export const listCratesInput = z.object({
   limit: z.number().int().min(1).max(MAX_CRATE_LIMIT).optional(),
-  // Same bound as every other cursor-taking tool, and for the same reason
-  // (review 2026-09-13, finding 1): one unbounded cursor anywhere is one
-  // unbounded cursor too many.
+  // Same bound as every other cursor-taking tool, and for the same reason:
+  // one unbounded cursor anywhere is one unbounded cursor too many.
   cursor: z.string().max(MAX_CURSOR_LENGTH).optional(),
 });
 
