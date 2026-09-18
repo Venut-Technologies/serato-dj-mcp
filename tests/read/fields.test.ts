@@ -58,8 +58,8 @@ describe("resolveFields", () => {
     expect(r.error.details?.allowed).toEqual(ALL_FIELDS);
   });
 
-  // Spec 3.3: schema drift is a warning, not a refusal. Serato has 51
-  // migrations in its own history.
+  // Schema drift is a warning, not a refusal. Serato has 51 migrations in
+  // its own history.
   it("drops a field whose column is missing and says so in a warning", () => {
     const without = new Set([...ALL_COLUMNS].filter((c) => c !== "bpm"));
     const r = resolveFields(["title", "bpm"], without);
@@ -116,14 +116,14 @@ describe("mapRow", () => {
     expect(out.added).toBe("2023-11-14T22:13:20.000Z");
   });
 
-  // Spec 4.1: redactPath applies to every track path that reaches the model.
+  // redactPath applies to every track path that reaches the model.
   it("builds an absolute path from the volume root and redacts the home prefix", () => {
     const row = { id: 1, path: "Users/x/Music/a.flac", _location_id: 2 };
     expect(mapRow(row, ["id", "path"], roots).path).toBe("/Users/x/Music/a.flac");
   });
 
   // A streaming portable_id is not a filesystem path and must not be turned
-  // into one (spec 2.3).
+  // into one.
   it("leaves a streaming id alone", () => {
     const row = { id: 1, path: "streaming://beatport/123", _location_id: 2 };
     expect(mapRow(row, ["id", "path"], roots).path).toBe("streaming://beatport/123");

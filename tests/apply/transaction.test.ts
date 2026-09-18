@@ -93,12 +93,13 @@ describe("applyCrates", () => {
       { portable_id: "Users/x/3.flac", list_order: 1 },
       { portable_id: "Users/x/1.flac", list_order: 2 },
     ]);
-    // Spec 5.4: without the space revision moving, the crate lies in the
-    // database and never appears in Serato -- a silent failure.
+    // Without the space revision moving, the crate lies in the database and
+    // never appears in Serato -- a silent failure (see docs/serato-4x-notes.md
+    // on why the revision order matters).
     expect(revisions(read)).toEqual({ sr: ROOT_BASE_REVISION + 1, spr: ROOT_BASE_REVISION + 1 });
   });
 
-  // Decision 3: one transaction, one revision, for the whole batch.
+  // One transaction, one revision, for the whole batch.
   it("writes several crates in one transaction with a single revision bump", () => {
     const { input, read } = setup();
     const r = applyCrates(
@@ -127,7 +128,7 @@ describe("applyCrates", () => {
     expect(list_order).toBe(max + 1);
   });
 
-  // Decision 3 again: a conflict on ANY crate refuses the whole batch, and
+  // Same rule again: a conflict on ANY crate refuses the whole batch, and
   // nothing -- not the first crate, not the revision -- reaches the file.
   it("writes nothing at all when one crate of the batch conflicts, ignoring case", () => {
     const { input, read } = setup({
@@ -168,9 +169,9 @@ describe("applyCrates", () => {
     expect(revisions(read).sr).toBe(ROOT_BASE_REVISION);
   });
 
-  // Spec 5.5's foreign-key check is about THIS write. A library that already
-  // carries an orphan row must not refuse every apply forever over damage the
-  // write did not cause.
+  // The foreign-key check runs on THIS write. A library that already
+  // carries an orphan row must not refuse every apply forever over damage
+  // the write did not cause.
   it("applies into a library that already carries an orphan row", () => {
     const { input, read, rootPath } = setup();
     const db = new DatabaseSync(rootPath);
@@ -188,8 +189,8 @@ describe("applyCrates", () => {
     expect(orphans[0].n).toBe(1);
   });
 
-  // Decision 2: a changed root_generation is reported, not refused -- Serato
-  // writes root.sqlite mid-session (a DBv2 export, measured) without touching
+  // A changed root_generation is reported, not refused -- Serato writes
+  // root.sqlite mid-session (a DBv2 export, measured) without touching
   // anything a crate depends on.
   it("applies despite a changed root_generation and says so", () => {
     const { input } = setup();
@@ -200,8 +201,8 @@ describe("applyCrates", () => {
     expect(r.warnings).toEqual([expect.objectContaining({ code: "root_generation_changed" })]);
   });
 
-  // Spec 5.1.3: Serato is checked again right after BEGIN IMMEDIATE, because
-  // it could have started after the check the caller made before its backup.
+  // Serato is checked again right after BEGIN IMMEDIATE, because it could
+  // have started after the check the caller made before its backup.
   it("rolls back when Serato is found running inside the transaction", () => {
     const { input, read, masterPath } = setup();
     const m = new DatabaseSync(masterPath);
@@ -272,9 +273,9 @@ describe("applyCrates", () => {
     expect(revisions(read).sr).toBe(ROOT_BASE_REVISION);
   });
 
-  // Spec 5.1.3: the second Serato check must run while the write lock is held,
-  // or Serato could start between the check and BEGIN. Observed from inside the
-  // probe: another writer must already be shut out.
+  // The second Serato check must run while the write lock is held, or
+  // Serato could start between the check and BEGIN. Observed from inside
+  // the probe: another writer must already be shut out.
   it("checks Serato while already holding root.sqlite's write lock", () => {
     const { input, rootPath, masterPath } = setup();
     const m = new DatabaseSync(masterPath);

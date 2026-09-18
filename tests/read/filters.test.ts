@@ -101,9 +101,9 @@ describe("buildFilters", () => {
     expect(names(db, {})).toEqual(["Rain", "Deep Cut", "No Key", "Airhorn"]);
   });
 
-  // Decision 2: tokens through AND, each token in any field. On the real
-  // library genres look like "Techno (Raw / Deep / Hypnotic)", so a
-  // whole-string LIKE would find nothing for "techno deep".
+  // Tokens through AND, each token in any field. On the real library genres
+  // look like "Techno (Raw / Deep / Hypnotic)", so a whole-string LIKE
+  // would find nothing for "techno deep".
   it("requires every token of q, in any of the searched fields", () => {
     expect(names(db, { q: "techno deep" })).toEqual(["Deep Cut"]);
     expect(names(db, { q: "kerri rain" })).toEqual(["Rain"]);
@@ -192,9 +192,9 @@ describe("buildFilters", () => {
     expect(names(db, { flags: { streaming: true } })).toEqual(["No Key"]);
   });
 
-  // Spec 3.3 again: a schema without the column must not produce broken SQL.
-  // Spec 3.5: and it must not drop the condition in silence either -- a
-  // dropped bpm window turns the whole library into "the tracks at 122-126".
+  // A schema without the column must not produce broken SQL, and it must
+  // not drop the condition in silence either -- a dropped bpm window turns
+  // the whole library into "the tracks at 122-126".
   it("skips a filter whose column this schema does not have, and says so", () => {
     const built = buildFilters({ genre: "house" }, new Set(["id", "name"]));
     if (isSeratoError(built)) throw new Error("unexpected error");

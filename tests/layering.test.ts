@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 const SRC_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "src");
 
-/** The two files spec 3.1 allows to import the SDK. */
+/** The two files the SDK import is confined to. */
 const SDK_FILES = new Set(["index.ts", "server.ts"]);
 
 function sourceFiles(dir: string): string[] {
@@ -19,11 +19,11 @@ function sourceFiles(dir: string): string[] {
 }
 
 /**
- * Spec 3.1: the SDK is confined to index.ts and server.ts, so every other
- * layer stays testable without an MCP client. This held in P1 only because a
- * reviewer grepped for it by hand; P2 through P4 add nine more tools and
- * further layers under read/, so it is enforced here instead of relying on
- * that happening again every time.
+ * The SDK is confined to index.ts and server.ts, so every other layer stays
+ * testable without an MCP client. This held early on only because a
+ * reviewer grepped for it by hand; nine more tools and further layers under
+ * read/ came later, so it is enforced here instead of relying on that
+ * happening again every time.
  *
  * Checks all of src/, not just src/tools/: read/ and schema/ are as much
  * "not the transport" as tools/ is, and a rule that only watches one

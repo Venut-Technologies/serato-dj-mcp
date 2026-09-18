@@ -55,8 +55,9 @@ export function buildDerived(db: DatabaseSync): void {
   const columns = new Set(
     (db.prepare("PRAGMA table_info('asset')").all() as { name: string }[]).map((r) => r.name),
   );
-  // Schema drift is expected (51 migrations in Serato's own history, spec
-  // 3.3): an asset table without these columns is not an error, it just
+  // Schema drift is expected (51 migrations in Serato's own history): this
+  // server's own rule is to warn and degrade on an unfamiliar schema, not to
+  // refuse, so an asset table without these columns is not an error, it just
   // yields no keys.
   if (!columns.has("id")) return;
   // KEY_COLUMNS, not two string literals: read/key.ts owns which columns

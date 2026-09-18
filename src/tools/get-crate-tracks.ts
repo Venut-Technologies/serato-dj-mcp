@@ -19,10 +19,10 @@ export const getCrateTracksInput = z
   .object({
     crate_id: z.number().int().optional(),
     crate_name: z.string().optional(),
-    // Same bounds as search_tracks, and for the same reason (review
-    // 2026-09-13, finding 1): a caller must not be able to reach the
-    // unbounded-cursor or unbounded-fields failure through this tool just
-    // because search_tracks closed it off in its own schema.
+    // Same bounds as search_tracks, and for the same reason: a caller must
+    // not be able to reach the unbounded-cursor or unbounded-fields failure
+    // through this tool just because search_tracks closed it off in its own
+    // schema.
     fields: z.array(z.string()).min(1).max(ALL_FIELDS.length).optional(),
     limit: z.number().int().min(1).max(MAX_TRACK_LIMIT).optional(),
     cursor: z.string().max(MAX_CURSOR_LENGTH).optional(),

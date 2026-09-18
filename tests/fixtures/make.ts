@@ -55,17 +55,16 @@ const LOCATION_ID = 2;
 /**
  * The container tree, numbered as the real master.sqlite numbers it
  * (measured 2026-09-06). Getting this shape right in the fixture is not
- * decoration: the whole-branch review of P2 found a defect -- Serato's
- * Prepare panel listed as a user crate -- that no test could express,
- * precisely because the fixture used to seed one space and no synthetic
- * root. Spec 8 names that trap.
+ * decoration: a whole-branch review found a defect -- Serato's Prepare panel
+ * listed as a user crate -- that no test could express, precisely because
+ * the fixture used to seed one space and no synthetic root.
  *
  * The real tree is: container 0 is a synthetic root (parent NULL, space
  * NULL), every space root hangs off it at parent_id 0, and user crates hang
  * off their space root. The Prepare panel is a type = 1 container in its own
- * space -- indistinguishable from a user crate by type alone, which is why
- * spec 2.4 says filtering on type = 1 is insufficient, and why the fixture
- * seeds one by default.
+ * space -- indistinguishable from a user crate by type alone, so filtering
+ * on type = 1 alone is insufficient, and the fixture seeds one by default so
+ * a test can catch that mistake.
  */
 const SYNTHETIC_ROOT_CONTAINER_ID = 0;
 const SPACE_ID = 5;
@@ -89,14 +88,14 @@ export function makeMasterFixture(
     crates?: CrateSeed[];
     userVersion?: number;
     /** The location's database_uri, which is the ONLY source of a volume
-     *  root (location.path is NULL in every observed row, spec 2.3). Default
-     *  is the boot disk. Override it to model a library on an external
-     *  volume, mounted or not. */
+     *  root (location.path is NULL in every observed row). Default is the
+     *  boot disk. Override it to model a library on an external volume,
+     *  mounted or not. */
     connectionUri?: string;
     /** Tracks to put into Serato's Prepare panel (container 14, a type = 1
      *  container in its own space). Nothing that reads crates may return
-     *  them as crate members -- spec 2.4 -- and that claim needs a fixture
-     *  that can express it. */
+     *  them as crate members, and that claim needs a fixture that can
+     *  express it. */
     prepareTrackExternalIds?: number[];
   } = {},
 ): string {
@@ -162,9 +161,8 @@ export function makeMasterFixture(
   // fills them (after_asset_insert) calls serato_str_norm, a function only
   // the Serato process has, so the fixture drops it. Lowercasing is what
   // serato_str_norm was observed to do: "Hey You! - Scratch Sample" ->
-  // "hey you! - scratch sample" (spec 2.9.1). Without this every _norm is
-  // NULL and any test that touches search or text ordering is measuring
-  // nothing.
+  // "hey you! - scratch sample". Without this every _norm is NULL and any
+  // test that touches search or text ordering is measuring nothing.
   const ins = db.prepare(
     `INSERT INTO asset (location_id, external_id, portable_id, file_name, name, artist, album,
                         comments, bpm, key_value, key, genre, rating, length_ms, time_added,
@@ -300,9 +298,9 @@ export function makeMasterFixture(
 /**
  * The ids the live root.sqlite gives its anchors (measured 2026-09-14): the
  * Serato Library space is 2 and its root container is 3. They differ from
- * master.sqlite's numbering on purpose -- spec 2.2: identity does not carry
- * across the two databases, which is why every write resolves anchors and
- * tracks dynamically instead of trusting an id.
+ * master.sqlite's numbering on purpose: identity does not carry across the
+ * two databases, which is why every write resolves anchors and tracks
+ * dynamically instead of trusting an id.
  */
 export const ROOT_SPACE_ID = 2;
 export const ROOT_ANCHOR_CONTAINER_ID = 3;
@@ -331,7 +329,8 @@ export function makeRootFixture(
   ).run(0, rev);
   // root.master.last_sync_secret is a 64-bit value on the live file that does
   // not fit a JavaScript number; the fixture uses a small one, and nothing in
-  // src/ reads that table at all (spec 5.4 forbids touching it).
+  // src/ reads that table at all -- the same trap master.sqlite's own master
+  // table has, which src/apply/root.ts avoids the same way.
   db.prepare(
     "INSERT INTO master (uuid, revision, last_sync_time, last_sync_secret) VALUES (?, 1, 0, 0)",
   ).run(Buffer.alloc(16, 1));

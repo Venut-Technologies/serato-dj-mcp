@@ -74,8 +74,8 @@ const VERSION = "0.1.0";
 
 const RO = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
 
-/** Writes are additive -- a new crate, never an overwrite or a delete (spec
- *  5.9) -- so destructiveHint stays false; none of them is idempotent. */
+/** Writes are additive -- a new crate, never an overwrite or a delete --
+ *  so destructiveHint stays false; none of them is idempotent. */
 const WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false } as const;
 
 /** discard_changes deletes the user's staged work -- the one write tool

@@ -36,8 +36,8 @@ describe("checkCursor", () => {
     expect(raw).toMatch(/^[A-Za-z0-9_-]+$/);
   });
 
-  // Spec 4.3: continuing a different query from an old position would return
-  // rows that were never in that query's result.
+  // Continuing a different query from an old position would return rows
+  // that were never in that query's result.
   it("refuses a cursor whose query changed", () => {
     const raw = encodeCursor({ fp: "abc", gen: "gen1", key });
     const r = checkCursor(raw, "different", "gen1");
@@ -45,7 +45,7 @@ describe("checkCursor", () => {
     if (isSeratoError(r)) expect(r.error.details?.reason).toBe("cursor_query_mismatch");
   });
 
-  // Decision 4 (2026-09-07): a moved generation is a warning, not a refusal.
+  // Decided 2026-09-07: a moved generation is a warning, not a refusal.
   // Keyset makes "everything after this key" well defined on the new
   // snapshot; the cost is a few rows skipped or repeated at the seam.
   it("continues on a newer snapshot and says so", () => {

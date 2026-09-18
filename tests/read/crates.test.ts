@@ -72,7 +72,7 @@ describe("listCrates", () => {
     ]);
   });
 
-  // Decision 5: the 15 space roots and the smart crate (whose real name is
+  // The 15 space roots and the smart crate (whose real name is
   // "Stems<private-use char>22222222...") are noise in the model's context.
   it("shows no space roots", () => {
     expect(listCrates(db, { limit: 100 }).every((c) => c.type === 1)).toBe(true);
@@ -83,7 +83,7 @@ describe("listCrates", () => {
     expect(listCrates(db, { limit: 10, afterId: 20 }).map((c) => c.id)).toEqual([21]);
   });
 
-  // Review 2026-09-07 (finding 2): makeMasterFixture seeds exactly one
+  // A 2026-09-07 review found that makeMasterFixture seeds exactly one
   // location_container row per crate, so every test above passes just as
   // well with a plain COUNT(*) as with COUNT(DISTINCT ...) -- nothing here
   // exercised the join this task exists for (see the doc comment on
@@ -128,11 +128,11 @@ describe("listCrates", () => {
     expect(listCrates(db2, { limit: 10 })[0].track_count).toBe(1);
   });
 
-  // Review 2026-09-07 (finding 3): every crate above hangs directly off the
-  // space root, so the recursive step of CRATE_QUERY -- a crate whose
-  // parent is another crate, not a space root -- was never exercised. This
-  // nests a crate under crate 20 and checks it surfaces exactly once, with
-  // the full chain in its path.
+  // The same 2026-09-07 review found that every crate above hangs directly
+  // off the space root, so the recursive step of CRATE_QUERY -- a crate
+  // whose parent is another crate, not a space root -- was never exercised.
+  // This nests a crate under crate 20 and checks it surfaces exactly once,
+  // with the full chain in its path.
   it("lists a crate nested under another crate exactly once, with the full path", () => {
     const dir = mkdtempSync(join(tmpdir(), "serato-crates-"));
     const path = makeMasterFixture(dir, {
@@ -172,8 +172,8 @@ describe("resolveCrate", () => {
     expect(resolveCrate(db, { name: "gigs 2026" })).toMatchObject({ id: 20 });
   });
 
-  // Decision 8: exact match, and the refusal carries the whole list so the
-  // model can pick without a second round trip.
+  // Exact match, and the refusal carries the whole list so the model can
+  // pick without a second round trip.
   it("refuses a partial name and shows what exists", () => {
     const r = resolveCrate(db, { name: "Gigs" });
     expect(isSeratoError(r)).toBe(true);
@@ -194,12 +194,12 @@ describe("resolveCrate", () => {
     if (isSeratoError(r)) expect(r.error.details?.reason).toBe("crate_ref_missing");
   });
 
-  // Review 2026-09-07 (finding 1): ambiguous_crate is one of the three
-  // contract reason strings this task was scoped to deliver, and it had no
-  // coverage. Originally seeded with the two candidates in different spaces;
-  // review 2026-09-13 (finding 2) restricted listing/resolving to the
-  // "Serato Library" space alone, so a same-named crate in a second space is
-  // no longer visible at all and cannot produce an ambiguity. Re-seeded to
+  // ambiguous_crate is one of the three contract reason strings this task
+  // was scoped to deliver, and on 2026-09-07 it had no coverage. Originally
+  // seeded with the two candidates in different spaces; a 2026-09-13 change
+  // restricted listing/resolving to the "Serato Library" space alone, so a
+  // same-named crate in a second space is no longer visible at all and
+  // cannot produce an ambiguity. Re-seeded to
   // collide the way it still can: two crates named "Gigs 2026" in the SAME
   // space, under different parents -- the container UNIQUE constraint is
   // (parent_id, name COLLATE NOCASE, type), so same parent would collide at
@@ -250,9 +250,9 @@ describe("resolveCrate", () => {
     ]);
   });
 
-  // Review 2026-09-13 (finding 2): verified against the live library, a plain
-  // `type = 1` filter returns Serato's own Prepare panel as if it were a user
-  // crate -- it is a type = 1 container, but it lives in a space of its own,
+  // Verified 2026-09-13 against the live library: a plain `type = 1` filter
+  // returns Serato's own Prepare panel as if it were a user crate -- it is a
+  // type = 1 container, but it lives in a space of its own,
   // not "Serato Library". The fixture seeds that exact shape by default now
   // (the synthetic root, both space roots, and the Prepare container), so
   // this test needs no setup of its own: it just asserts the panel is

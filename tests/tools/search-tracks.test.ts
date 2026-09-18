@@ -170,7 +170,7 @@ describe("search_tracks", () => {
     expect(second.next_cursor).toBeUndefined();
   });
 
-  // Spec 4.3: a cursor belongs to the query that produced it.
+  // A cursor belongs to the query that produced it.
   it("refuses a cursor carried over to a different query", async () => {
     const c = ctx();
     const first = await searchTracks({ sort: "added:asc", limit: 2 }, c);
@@ -207,7 +207,7 @@ describe("search_tracks", () => {
     expect(r.next_cursor).toBeUndefined();
   });
 
-  // Review 2026-09-13 (finding 1): past ~988 whitespace tokens, q builds a
+  // Found in a 2026-09-13 review: past ~988 whitespace tokens, q builds a
   // WHERE clause deep enough that SQLite's prepare() throws "Expression tree
   // is too large", which readSession's outer catch turns into
   // snapshot_failed -- telling the model the snapshot is broken rather than
@@ -236,9 +236,9 @@ describe("search_tracks", () => {
     }
   });
 
-  // Review 2026-09-13 (finding 3): rating is a 0..1 REAL (DDL: CHECK (rating
-  // IS NULL OR rating BETWEEN 0 AND 1)). min: 4 is the obvious wrong guess
-  // for a five-star field, and used to come back as a silent empty page.
+  // Found in the same review: rating is a 0..1 REAL (DDL: CHECK (rating IS
+  // NULL OR rating BETWEEN 0 AND 1)). min: 4 is the obvious wrong guess for
+  // a five-star field, and used to come back as a silent empty page.
   it("refuses rating.min above the 0..1 scale", async () => {
     const r = await searchTracks({ rating: { min: 4 } }, ctx());
     expect(isSeratoError(r)).toBe(true);

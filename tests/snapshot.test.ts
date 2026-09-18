@@ -211,9 +211,10 @@ describe("snapshot cache", () => {
   };
   const snapshots = (cache: string) => readdirSync(cache).filter((n) => n.startsWith("snap-"));
 
-  // Spec 7: "снапшоты -- до смены (mtime, size)". Without this a running
-  // Serato leaves one full copy of the library per write burst: 4.6 MB each
-  // on a 19-track demo library, and P2 makes every read tool a caller.
+  // Snapshots are retained until (mtime, size) changes. Without this a
+  // running Serato leaves one full copy of the library per write burst:
+  // 4.6 MB each on a 19-track demo library, multiplied by every read tool
+  // that calls it.
   it("keeps only the current generation of a library", async () => {
     const live = makeMasterFixture(tmp(), { tracks: [] });
     const cache = tmp();
@@ -246,7 +247,7 @@ describe("snapshot cache", () => {
     expect(snapshots(cache).sort()).toEqual([basename(a.path), basename(b.path)].sort());
   });
 
-  // Spec 3.2. The library changes on every Serato write, so without the
+  // The library changes on every Serato write, so without the throttle
   // window each call copies the whole database again.
   it("serves the last snapshot again within the throttle window", async () => {
     const live = makeMasterFixture(tmp(), { tracks: [] });

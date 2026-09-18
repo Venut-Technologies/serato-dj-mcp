@@ -212,9 +212,9 @@ describe("server", () => {
 
   // found[0] could be a 3.x directory: joining "master.sqlite" onto it and
   // handing that to runSql() would surface a generic snapshot_failed instead
-  // of naming the real problem. A 3.x-only result is not "not found" either
-  // (spec 6, 12): it must name the detected version so the user does not
-  // retry the same --library and get the same unhelpful answer.
+  // of naming the real problem. A 3.x-only result is not "not found" either:
+  // it must name the detected version so the user does not retry the same
+  // --library and get the same unhelpful answer.
   it("run_sql reports unsupported_version, not library_not_found, when only a 3.x library exists", async () => {
     const dir = mkdtempSync(join(tmpdir(), "serato-3x-"));
     writeFileSync(join(dir, "database V2"), "binary");
@@ -232,7 +232,7 @@ describe("server", () => {
   // A candidate exists (an unreadable master.sqlite) but it is neither a
   // readable 4.x nor a 3.x library, so this still falls back to
   // library_not_found -- and, per B3, that response must carry searched[]
-  // (spec 6 makes it mandatory) alongside the existing candidates.
+  // alongside the existing candidates.
   it("run_sql reports library_not_found with searched[] when the only candidate is unreadable", async () => {
     const dir = mkdtempSync(join(tmpdir(), "serato-unreadable-"));
     writeFileSync(join(dir, "master.sqlite"), "not sqlite");

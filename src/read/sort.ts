@@ -61,8 +61,9 @@ export function parseSort(raw: string | undefined, hasQuery: boolean): SortSpec 
 }
 
 /** Serato's normalised copy when the schema has it, the lowercased raw
- *  column otherwise. Parity with serato_str_norm is unreachable (spec
- *  2.9.1), so either is an approximation and the cheaper one wins. */
+ *  column otherwise. Parity with serato_str_norm is unreachable -- it is a
+ *  function only the Serato process has, not one this server can call --
+ *  so either is an approximation and the cheaper one wins. */
 function textExpr(column: string, assetColumns: Set<string>): string | null {
   const hasNorm = assetColumns.has(`${column}_norm`);
   const hasRaw = assetColumns.has(column);

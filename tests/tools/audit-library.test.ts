@@ -89,8 +89,8 @@ const byName = (checks: { name: string; count: number }[]) =>
 
 describe("audit_library", () => {
   // Every check runs by default, broken_paths included: only its DISK PASS
-  // is opt-in (spec 4.1), and its database half is Serato's own missing
-  // flag, which costs nothing and is a real finding.
+  // is opt-in, and its database half is Serato's own missing flag, which
+  // costs nothing and is a real finding.
   it("runs every check by default, and carries a generation", async () => {
     const r = await auditLibrary({}, ctx());
     if (isSeratoError(r)) throw new Error("unexpected error");
@@ -123,8 +123,8 @@ describe("audit_library", () => {
     expect(r.checks).toHaveLength(1);
   });
 
-  // The criterion spec 4.1 wrote before P2 existed -- key_value < 0 -- counts
-  // both of these as missing. Only one of them is: the other has a key this
+  // An earlier, simpler criterion -- key_value < 0 -- counts both of these
+  // as missing. Only one of them is: the other has a key this
   // server reads and its own search matches, so calling it missing would
   // make the audit contradict the search.
   it("separates no key at all from a key Serato itself cannot read", async () => {
@@ -190,15 +190,15 @@ describe("audit_library", () => {
       const on = await auditLibrary({ checks: ["broken_paths"], check_filesystem: true }, c);
       if (isSeratoError(on)) throw new Error("unexpected error");
       // Seven non-streaming tracks, none of which exist on disk. The
-      // streaming row is skipped: its portable_id is not a path (spec 2.3).
+      // streaming row is skipped: its portable_id is not a path.
       expect(on.checks[0].count).toBe(7);
       expect(on.checks[0].sample_ids).toHaveLength(7);
     });
   });
 
-  // Spec 2.4: the Prepare panel is a type = 1 container too, so "in a crate"
-  // must not count it -- otherwise this number disagrees with list_crates,
-  // which excludes it.
+  // The Prepare panel is a type = 1 container too, so "in a crate" must not
+  // count it -- otherwise this number disagrees with list_crates, which
+  // excludes it.
   it("does not count the Prepare panel as a crate", async () => {
     const dir = tmp();
     makeMasterFixture(dir, {
@@ -219,7 +219,7 @@ describe("audit_library", () => {
     expect(r.checks[0].count).toBe(1);
   });
 
-  // Spec 4.1 names two duplicate criteria. The tag criterion finds
+  // This audit has two duplicate criteria. The tag criterion finds
   // re-imports; this one catches the same recording filed under different
   // tags, and the golden library yields zero of them, so only a fixture can
   // cover it.
@@ -255,7 +255,7 @@ describe("audit_library", () => {
   });
 
   // The module's headline schema-degradation claim: a check whose columns
-  // this schema lacks reports nothing, never a wrong number (spec 3.3).
+  // this schema lacks reports nothing, never a wrong number.
   it("omits a check this schema cannot run, and says why", async () => {
     const dir = tmp();
     const path = makeMasterFixture(dir, {

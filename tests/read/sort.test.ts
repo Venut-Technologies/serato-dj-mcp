@@ -94,8 +94,8 @@ describe("parseSort", () => {
     expect(parseSort("added:desc", false)).toEqual({ field: "added", dir: "desc" });
   });
 
-  // Decision 3: without q there is nothing for relevance to be relative to,
-  // and silently sorting by something else would hide that.
+  // Without q there is nothing for relevance to be relative to, and
+  // silently sorting by something else would hide that.
   it("refuses relevance without a query", () => {
     const r = parseSort("relevance", false);
     expect(isSeratoError(r)).toBe(true);

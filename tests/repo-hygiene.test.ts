@@ -112,13 +112,54 @@ describe("repository hygiene", () => {
 
   // A comment that cites "spec 5.4" or "Ruling 10" cites a document nobody
   // outside this machine has. What it knew has to be said in the comment.
+  // Built from character classes rather than the literal words themselves,
+  // so this pattern does not describe itself -- moot while SELF_PATH is
+  // skipped, but true independently of that skip too. Besides the numbered
+  // forms (any case), it also catches the two forms a numbered citation
+  // never took: "P2 review" (a project phase standing in for a document)
+  // and "review ... finding 3" (a numbered item inside one).
   const INTERNAL_REFERENCE =
-    /\b(?:spec|Spec|SPEC)\s\d+(?:\.\d+)*|\bRuling\s\d+|\bDecision\s\d+|\bamendment\s\d+|ПОПРАВКА/g;
+    /\b[Ss][Pp][Ee][Cc]\s\d+(?:\.\d+)*|\b[Rr][Uu][Ll][Ii][Nn][Gg]\s\d+|\b[Dd][Ee][Cc][Ii][Ss][Ii][Oo][Nn]\s\d+|\b[Aa][Mm][Ee][Nn][Dd][Mm][Ee][Nn][Tt]\s\d+|\b[Pp][1-4]\s+[Rr][Ee][Vv][Ii][Ee][Ww]\b|\b[Rr][Ee][Vv][Ii][Ee][Ww]\b\s+[Oo][Ff]\s+[Pp][1-4]\b|\b[Rr][Ee][Vv][Ii][Ee][Ww]\b[^\n]{0,24}[Ff][Ii][Nn][Dd][Ii][Nn][Gg]\s\d+|ПОПРАВКА/g;
 
-  it("points at no internal document from src", () => {
-    // hits() already runs through forEachLine, which skips SELF_PATH -- this
-    // rule's own pattern literal would otherwise match itself.
-    const found = hits(INTERNAL_REFERENCE).filter((h) => h.startsWith("src/"));
+  it("points at no internal document from tracked source", () => {
+    const found = hits(INTERNAL_REFERENCE).filter(
+      (h) => h.startsWith("src/") || h.startsWith("tests/"),
+    );
+    expect(found).toEqual([]);
+  });
+
+  // A wrapped comment can break its own citation in two -- "review" at the
+  // end of one line, "2026-09-13, finding 1)" at the start of the next --
+  // which a single-line scan reads as two harmless fragments. Joining each
+  // line with the next (its own comment marker stripped first) and keeping
+  // only matches that straddle the join catches that split without
+  // double-reporting what forEachLine's single-line pass already finds.
+  function hitsAcrossLineWrap(pattern: RegExp): string[] {
+    const found: string[] = [];
+    for (const path of tracked) {
+      if (path === SELF_PATH) continue;
+      const text = readTextOrNull(path);
+      if (text === null) continue;
+      const lines = text.split("\n");
+      for (let i = 0; i < lines.length - 1; i++) {
+        const a = lines[i];
+        const b = lines[i + 1].replace(/^\s*(?:\*\/|\*|\/\/)?\s*/, "");
+        const joined = `${a} ${b}`;
+        const joinAt = a.length;
+        for (const m of joined.matchAll(pattern)) {
+          if (m.index !== undefined && m.index < joinAt && m.index + m[0].length > joinAt) {
+            found.push(`${path}:${i + 1}-${i + 2}: ${m[0].replace(/\s+/g, " ")}`);
+          }
+        }
+      }
+    }
+    return found;
+  }
+
+  it("points at no internal document split across a comment's line wrap", () => {
+    const found = hitsAcrossLineWrap(INTERNAL_REFERENCE).filter(
+      (h) => h.startsWith("src/") || h.startsWith("tests/"),
+    );
     expect(found).toEqual([]);
   });
 });

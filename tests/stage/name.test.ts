@@ -33,7 +33,7 @@ describe("validateCrateName", () => {
     expect(reason("я".repeat(129))).toBe("too_long");
   });
 
-  it("refuses the characters and the sequence spec 4.2 forbids", () => {
+  it("refuses the characters and the sequence this protocol forbids", () => {
     expect(reason("A/B")).toBe("forbidden_character");
     expect(reason("A:B")).toBe("forbidden_character");
     expect(reason("A\u0000B")).toBe("forbidden_character");

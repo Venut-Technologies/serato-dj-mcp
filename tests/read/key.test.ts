@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { fromKeyText, fromKeyValue, KEY_COLUMNS, tonality } from "../../src/read/key.js";
 
 describe("fromKeyValue", () => {
-  // The two conversions recorded in spec 2.6, both verified against Serato
-  // itself: they anchor the wheel's orientation, which an off-by-one or a
-  // swapped A/B side would silently rotate.
+  // The two conversions below are both verified against Serato itself: they
+  // anchor the wheel's orientation, which an off-by-one or a swapped A/B
+  // side would silently rotate.
   it("matches the conversions verified against Serato", () => {
     expect(fromKeyValue(21)).toBe("10B");
     expect(fromKeyValue(1)).toBe("2A");
@@ -32,9 +32,9 @@ describe("fromKeyValue", () => {
 });
 
 describe("fromKeyText", () => {
-  // Spec 2.6, verified on all 75 rows of the real library that carry Open
-  // Key text. Serato's own parser returns -1 for these, which is why they
-  // have to be read here at all.
+  // Verified on all 75 rows of the real library that carry Open Key text.
+  // Serato's own parser returns -1 for these, which is why they have to be
+  // read here at all.
   it("converts the Open Key values verified on the real library", () => {
     expect(fromKeyText("1m")).toEqual({ camelot: "8A", source: "open_key" });
     expect(fromKeyText("6m")).toEqual({ camelot: "1A", source: "open_key" });

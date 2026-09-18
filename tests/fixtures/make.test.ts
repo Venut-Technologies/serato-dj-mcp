@@ -25,8 +25,8 @@ describe("synthetic master fixture", () => {
 
   // Journal mode is deliberately NOT asserted here: node:sqlite creates a
   // fresh database in journal_mode=delete, and this fixture never switches
-  // it to wal, so it does not carry the real master.sqlite's mode (wal, see
-  // spec 2.1). A test titled "... and journal mode" earlier in this project
+  // it to wal, so it does not carry the real master.sqlite's mode (wal).
+  // A test titled "... and journal mode" earlier in this project
   // asserted nothing of the kind and stayed green regardless -- that title
   // is the trap this comment exists to avoid repeating.
   it("carries the real schema version", () => {

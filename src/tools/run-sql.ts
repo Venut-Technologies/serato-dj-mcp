@@ -189,8 +189,8 @@ export async function runSql(
   if (guarded) return guarded;
 
   // Through readSession like every other read tool, not by hand. It was by
-  // hand until 2026-09-13, and the whole-branch review of P2 pointed out
-  // what that costs: session.ts claims to be "the single read path", and
+  // hand until 2026-09-13, when a whole-branch review pointed out what that
+  // costs: session.ts claims to be "the single read path", and
   // this tool was the one that would silently miss any change to it -- a new
   // pragma, a derived-table version check, a different snapshot policy --
   // and the only one that never reported a schema_unknown warning. Six tools

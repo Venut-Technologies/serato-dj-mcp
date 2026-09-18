@@ -18,7 +18,7 @@ import { keysetPredicate, parseSort, SORT_FIELDS, sortExpressions } from "../rea
 
 /**
  * Bounds on model-supplied strings and arrays that feed straight into SQL
- * text or parameter lists (review 2026-09-13, finding 1). Uncapped, `q`
+ * text or parameter lists. Uncapped, `q`
  * builds one ten-clause OR group per whitespace token, ANDed together:
  * measured at 988 tokens that all match up to the last, the query itself ran
  * for tens of seconds with no way to interrupt it (node:sqlite is
@@ -66,7 +66,7 @@ export const searchTracksInput = z
     // The DDL carries CHECK (rating IS NULL OR rating BETWEEN 0 AND 1): rating
     // is a 0..1 REAL, not 0..5 stars. Bounding min/max here turns the obvious
     // wrong guess (e.g. min: 4) into an invalid_argument the model can act
-    // on, instead of a silent empty page (review 2026-09-13, finding 3).
+    // on, instead of a silent empty page.
     rating: z
       .object({
         min: z.number().min(0).max(1).optional(),
