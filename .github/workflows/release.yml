@@ -17,11 +17,11 @@ jobs:
     steps:
       # The tag, not a branch: the artifact is built from exactly what was
       # tagged, even if main has moved on since.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.ref }}
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: "22.16" # the floor package.json declares, and what CI proves
           cache: npm
@@ -39,8 +39,10 @@ jobs:
           echo "npm $have"
           # Fail here, with a sentence that says what is wrong, rather than at
           # the publish step with an authentication error nobody can read.
-          if [ "$(printf '%s\n%s\n' "11.5.0" "$have" | sort -V | head -1)" != "11.5.0" ]; then
-            echo "npm $have cannot publish with OIDC; 11.5.0 or newer is required"
+          # 11.5.1 is the floor setup-node's own trusted-publishing guide
+          # states; below it the publish fails even with OIDC set up correctly.
+          if [ "$(printf '%s\n%s\n' "11.5.1" "$have" | sort -V | head -1)" != "11.5.1" ]; then
+            echo "npm $have cannot publish with OIDC; 11.5.1 or newer is required"
             exit 1
           fi
 
