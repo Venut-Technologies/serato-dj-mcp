@@ -27,12 +27,22 @@ jobs:
           cache: npm
           registry-url: https://registry.npmjs.org
 
-      # Trusted publishing (OIDC, no token) needs npm 11.5 or newer, which is
-      # ahead of the npm bundled with Node 22.16.
+      # Trusted publishing (OIDC, no token) needs npm 11.5 or newer, and the
+      # npm bundled with Node 22.16 is 10.9.2. Pinned to 11 rather than latest:
+      # npm 12 requires Node ^22.22.2 || ^24.15.0 || >=26.0.0, above the 22.16
+      # floor this package declares and this workflow runs on, so `@latest`
+      # fails to install here (measured 2026-09-19, npm 12.0.2, EBADENGINE).
       - name: Use an npm that can publish with OIDC
         run: |
-          npm install -g npm@latest
-          npm --version
+          npm install -g npm@11
+          have="$(npm --version)"
+          echo "npm $have"
+          # Fail here, with a sentence that says what is wrong, rather than at
+          # the publish step with an authentication error nobody can read.
+          if [ "$(printf '%s\n%s\n' "11.5.0" "$have" | sort -V | head -1)" != "11.5.0" ]; then
+            echo "npm $have cannot publish with OIDC; 11.5.0 or newer is required"
+            exit 1
+          fi
 
       - run: npm ci
 
