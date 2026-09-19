@@ -17,11 +17,11 @@ jobs:
     steps:
       # The tag, not a branch: the artifact is built from exactly what was
       # tagged, even if main has moved on since.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ github.ref }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: "22.16" # the floor package.json declares, and what CI proves
           cache: npm

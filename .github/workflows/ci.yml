@@ -10,12 +10,17 @@ jobs:
       matrix:
         # 22.16 is the declared floor: backup() from node:sqlite lands there.
         # Declaring a floor without running on it is a guess.
+        #
+        # ubuntu-latest is deliberately not pinned: the point is to find out
+        # when a newer image breaks us. GitHub moves that label to Ubuntu 26
+        # from 2026-10-19, so a CI failure on Linux around that date is the
+        # image changing under us, not the commit that happened to be pushed.
         os: [macos-latest, ubuntu-latest]
         node: ["22.16", "24"]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with: { node-version: "${{ matrix.node }}" }
       - run: npm ci
       - run: npm run lint
@@ -24,8 +29,8 @@ jobs:
   package:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with: { node-version: "24" }
       - run: npm ci
       - run: npm run build
