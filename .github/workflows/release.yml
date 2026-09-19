@@ -24,7 +24,11 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: "22.16" # the floor package.json declares, and what CI proves
-          cache: npm
+          # No package-manager cache in the publishing job: the OIDC token that
+          # publishes to npm lives in this same job, and a poisoned cache would
+          # be restored into it. setup-node's own trusted-publishing guide asks
+          # for this. The cost is one uncached `npm ci` per release.
+          package-manager-cache: false
           registry-url: https://registry.npmjs.org
 
       # Trusted publishing (OIDC, no token) needs npm 11.5 or newer, and the
