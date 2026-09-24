@@ -1,0 +1,52 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.Venut-Technologies/serato-dj-mcp",
+  "title": "Serato DJ library",
+  "description": "Ask AI about your Serato library: harmonic search, crate audits, previewed crate building.",
+  "repository": {
+    "url": "https://github.com/Venut-Technologies/serato-dj-mcp",
+    "source": "github"
+  },
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "serato-dj-mcp",
+      "version": "0.1.0",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "named",
+          "name": "--library",
+          "description": "Serato library folder, the one holding master.sqlite. Optional on macOS, where the library in ~/Library/Application Support/Serato and on mounted drives is found automatically.",
+          "format": "filepath",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--allow-writes",
+          "description": "Flag, takes no value. Adds stage_crate, preview_changes, apply_changes and discard_changes, so new crates can be staged, previewed and written while Serato is closed. Off unless given.",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--allow-raw-sql",
+          "description": "Flag, takes no value. Adds run_sql: one read-only SELECT against a snapshot copy, with raw rows and full paths. Off unless given.",
+          "isRequired": false
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "SERATO_LIBRARY_PATH",
+          "description": "Same as --library; --library wins when both are given.",
+          "format": "filepath",
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}
