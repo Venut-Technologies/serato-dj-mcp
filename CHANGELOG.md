@@ -7,6 +7,10 @@ changes.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-25
+
+Claude Desktop now sees your library's data, and the server installs from the MCP Registry, as a Claude Desktop extension, or as a Claude Code plugin.
+
 ### Added
 
 - A Claude Desktop extension (`.mcpb`), attached to each GitHub Release from this version on and
@@ -65,7 +69,8 @@ The first release: reading, auditing and — behind a flag — crate writing.
   `apply_changes`. Crates are staged first and applied only with Serato closed, all or nothing,
   after a backup of both library databases and with a manifest of every write ([4031b37]).
 
-[Unreleased]: https://github.com/Venut-Technologies/serato-dj-mcp/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Venut-Technologies/serato-dj-mcp/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/Venut-Technologies/serato-dj-mcp/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Venut-Technologies/serato-dj-mcp/releases/tag/v0.1.0
 [fb8c0a0]: https://github.com/Venut-Technologies/serato-dj-mcp/commit/fb8c0a0
 [589c6cb]: https://github.com/Venut-Technologies/serato-dj-mcp/commit/589c6cb

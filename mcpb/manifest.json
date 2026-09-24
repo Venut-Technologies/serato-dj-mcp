@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "serato-dj-mcp",
   "display_name": "Serato DJ library",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Ask Claude about your Serato DJ library: harmonic search, crate audits, previewed crate building.",
   "long_description": "Ask Claude about your Serato DJ 4.x library: find tracks by BPM, Camelot key and harmonic compatibility, genre or date added; browse your crates; audit the library for duplicates, missing files, tracks with no BPM or key, and tracks in no crate. With writing switched on, Claude can build new crates for you: they are staged and shown to you first, and written only when you confirm and Serato is closed, after both library databases are backed up.\n\nEverything runs on your Mac. The server makes no network requests and sends no telemetry; reads go through a snapshot copy of the library, so a question cannot change it. Tested on macOS with Serato DJ Lite 4.0.9; Windows is untested.\n\nNot affiliated with, endorsed by, or supported by Serato. Serato and Serato DJ are trademarks of their respective owner.",
   "author": {

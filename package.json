@@ -1,6 +1,6 @@
 {
   "name": "serato-dj-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "mcpName": "io.github.Venut-Technologies/serato-dj-mcp",
   "description": "Ask Claude or another AI assistant about your Serato DJ library: harmonic search by BPM and Camelot key, crate browsing, duplicate and missing-file audits, and new crates built with a preview before anything is written; runs locally and is not affiliated with Serato.",
   "keywords": [

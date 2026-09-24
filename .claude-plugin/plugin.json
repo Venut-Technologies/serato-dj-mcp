@@ -1,7 +1,7 @@
 {
   "name": "serato-dj",
   "displayName": "Serato DJ library",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Ask Claude about your Serato DJ library: harmonic search by BPM and Camelot key, crate browsing, duplicate and missing-file audits. Read-only as installed; not affiliated with Serato.",
   "author": {
     "name": "Venut Technologies",
