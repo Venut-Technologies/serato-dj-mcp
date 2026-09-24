@@ -28,20 +28,20 @@ describe("envelope", () => {
     expect(Object.hasOwn(withEmptyWarnings, "warnings")).toBe(false);
   });
 
-  // The full object rides in structuredContent; content carries a short
-  // summary. This is a trade, not a free win: a client with no structured
-  // content support sees only the summary. Accepted because the target
-  // clients support it and a 200-row page would otherwise be sent twice.
-  it("puts a summary in content and the object in structuredContent", () => {
-    const r = toCallToolResult({ tracks: [1, 2, 3], generation: "abc123" });
+  // The full object rides in both channels. content once carried only a
+  // summary, and Claude Desktop, which reads content alone, showed the model
+  // "tracks: 3" and no track (measured 2026-09-24; see toCallToolResult).
+  it("puts the object in structuredContent and, as compact JSON, in content", () => {
+    const payload = { tracks: [1, 2, 3], generation: "abc123" };
+    const r = toCallToolResult(payload);
     // A plain `if`, not `expect(r.isError).toBe(false)`, because only
     // control-flow narrowing removes the `isError: true` branch (with no
     // structuredContent) from r's type for the assertions below.
     if (r.isError) throw new Error("expected a non-error result");
-    expect(r.structuredContent).toEqual({ tracks: [1, 2, 3], generation: "abc123" });
-    expect(r.content[0].text).toContain("tracks: 3");
-    expect(r.content[0].text).toContain("abc123");
-    expect(r.content[0].text.length).toBeLessThan(200);
+    expect(r.structuredContent).toEqual(payload);
+    expect(r.content).toHaveLength(1);
+    // Compact: no indentation or line breaks spent on a page sent twice.
+    expect(r.content[0].text).toBe(JSON.stringify(payload));
   });
 
   // An error must NOT ride in structuredContent: the MCP client validates

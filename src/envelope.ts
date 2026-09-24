@@ -25,28 +25,19 @@ export function ok<T extends object>(
   return out;
 }
 
-/** One-line description of a payload, for the text channel. */
-function summarise(value: Record<string, unknown>): string {
-  const bits: string[] = [];
-  for (const [k, v] of Object.entries(value)) {
-    if (Array.isArray(v)) bits.push(`${k}: ${v.length}`);
-    else if (k === "generation" || k === "next_cursor") bits.push(`${k} ${String(v)}`);
-  }
-  if (Array.isArray(value.warnings) && value.warnings.length > 0) {
-    bits.push(`warnings: ${value.warnings.length}`);
-  }
-  return bits.length > 0 ? bits.join(", ") : "ok";
-}
-
 /**
- * content carries a short summary; a successful payload rides in
- * structuredContent with a declared outputSchema.
+ * A successful payload rides twice: in structuredContent, against the
+ * declared outputSchema, and as compact JSON text in content.
  *
- * This is a trade, not a free win: a client without structured content
- * support sees the summary and loses the data. Accepted because the target
- * clients support it, and duplicating a 200-row page doubles the payload --
- * engine-dj-mcp puts the same object in both fields with two-space
- * indentation and declares no outputSchema at all.
+ * content used to carry only a one-line summary ("crates: 3"), on the
+ * assumption that the target clients read structuredContent. Claude Desktop
+ * does not: measured 2026-09-24 on Claude Desktop 2.7032.0, list_crates
+ * reached the model as "crates: 3, generation ..." with no crate in it,
+ * while Claude Code, on the same server, received every row. The MCP
+ * specification asks for exactly this duplication -- a tool returning
+ * structured content SHOULD also return it serialised in a text block --
+ * and the cost, a page sent twice, is paid in compact JSON, without the
+ * indentation engine-dj-mcp spends on it.
  *
  * An error value never rides in structuredContent, on either tool: the MCP
  * client validates whatever it finds there against the tool's outputSchema
@@ -59,9 +50,8 @@ function summarise(value: Record<string, unknown>): string {
  * tool's output schema") instead of delivered. The client's own guard --
  * `if (!result.structuredContent && !result.isError) throw ...` -- shows an
  * error result with no structuredContent is the shape it expects, not an
- * edge case. So the error rides as compact JSON in content instead, where
- * no schema ever touches it. Cost: the model reads it as JSON text rather
- * than as structured data.
+ * edge case. So the error rides as compact JSON in content only, where
+ * no schema ever touches it.
  */
 export function toCallToolResult(value: unknown):
   | {
@@ -75,7 +65,7 @@ export function toCallToolResult(value: unknown):
   }
   const obj = value as Record<string, unknown>;
   return {
-    content: [{ type: "text", text: summarise(obj) }],
+    content: [{ type: "text", text: JSON.stringify(obj) }],
     structuredContent: obj,
     isError: false,
   };

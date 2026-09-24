@@ -18,6 +18,13 @@ changes.
 - [PRIVACY.md](PRIVACY.md): what the server reads, what it writes and where, and that it makes no
   network requests and sends no telemetry, with the source file behind each statement.
 
+### Fixed
+
+- In Claude Desktop, every tool answered with a one-line count ("crates: 3") and no data: results
+  travelled only as structured content, which Claude Desktop does not pass to the model. Results
+  now also travel as compact JSON text, as the MCP specification recommends, so Claude Desktop
+  sees the tracks and crates themselves.
+
 ### Changed
 
 - The package description says what the server does for a DJ, including that it writes new
