@@ -49,7 +49,7 @@ jobs:
       # after npm, and the registry refuses a listing whose npm package does
       # not carry the same name. A version bumped in one file and not the
       # other would only surface there, after npm already has the release.
-      - name: server.json matches package.json
+      - name: server.json and the plugin match package.json
         run: |
           node -e "
             const pkg = require('./package.json');
@@ -63,6 +63,8 @@ jobs:
               if (p.identifier !== pkg.name) problems.push('identifier ' + p.identifier + ' vs ' + pkg.name);
               if (p.version !== pkg.version) problems.push('npm package version ' + p.version + ' vs ' + pkg.version);
             }
+            const plugin = require('./.claude-plugin/plugin.json');
+            if (plugin.version !== pkg.version) problems.push('plugin version ' + plugin.version + ' vs ' + pkg.version);
             if (problems.length) { console.error(problems.join('\n')); process.exit(1); }
-            console.log('server.json ' + srv.version + ' matches package.json');
+            console.log('server.json and plugin.json ' + srv.version + ' match package.json');
           "

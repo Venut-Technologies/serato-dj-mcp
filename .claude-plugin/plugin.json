@@ -1,0 +1,22 @@
+{
+  "name": "serato-dj",
+  "displayName": "Serato DJ library",
+  "version": "0.1.0",
+  "description": "Ask Claude about your Serato DJ library: harmonic search by BPM and Camelot key, crate browsing, duplicate and missing-file audits. Read-only as installed; not affiliated with Serato.",
+  "author": {
+    "name": "Venut Technologies",
+    "url": "https://github.com/Venut-Technologies"
+  },
+  "homepage": "https://github.com/Venut-Technologies/serato-dj-mcp#readme",
+  "repository": "https://github.com/Venut-Technologies/serato-dj-mcp",
+  "license": "MIT",
+  "keywords": [
+    "serato",
+    "dj",
+    "dj-library",
+    "crates",
+    "harmonic-mixing",
+    "camelot",
+    "mcp"
+  ]
+}

@@ -69,9 +69,10 @@ jobs:
           # must describe this same version, or the registry entry would
           # point at a different npm release than the one just published.
           for v in "$(node -p 'require("./server.json").version')" \
-                   "$(node -p 'require("./server.json").packages.find(p => p.registryType === "npm").version')"; do
+                   "$(node -p 'require("./server.json").packages.find(p => p.registryType === "npm").version')" \
+                   "$(node -p 'require("./.claude-plugin/plugin.json").version')"; do
             if [ "$v" != "$tag" ]; then
-              echo "tag $GITHUB_REF_NAME says $tag, server.json says $v"
+              echo "tag $GITHUB_REF_NAME says $tag, server.json or plugin.json says $v"
               exit 1
             fi
           done

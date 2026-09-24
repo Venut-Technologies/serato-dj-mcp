@@ -13,6 +13,8 @@ changes.
   Registry (`io.github.Venut-Technologies/serato-dj-mcp`).
 - Each release is now published to the official MCP Registry as well as npm, so MCP clients and
   catalogs that read the registry can find and install the server.
+- A Claude Code plugin (`.claude-plugin/plugin.json` and `.mcp.json`) that starts the server with
+  `npx -y serato-dj-mcp`, read-only, for installing from a plugin marketplace.
 - [PRIVACY.md](PRIVACY.md): what the server reads, what it writes and where, and that it makes no
   network requests and sends no telemetry, with the source file behind each statement.
 
