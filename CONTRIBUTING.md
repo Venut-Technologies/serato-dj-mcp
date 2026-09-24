@@ -26,6 +26,10 @@ npm run build       # emits dist/
 All four must pass before a pull request is reviewed. CI runs lint and tests on macOS and Linux,
 and the build, typecheck and package check on Linux.
 
+`npm audit` reports a high-severity `tmp` advisory through `@anthropic-ai/mcpb`, the dev-only tool
+that packs the Claude Desktop extension. It sits on the path of `mcpb init`'s interactive prompts,
+which `scripts/build-mcpb.sh` never calls, and nothing of it ships in the npm package or the bundle.
+
 ## Never commit library data
 
 - Do not commit real Serato databases (`master.sqlite`, `root.sqlite`, `location.sqlite`,
