@@ -240,11 +240,6 @@ jobs:
           echo "npm still does not serve $version after five minutes"
           exit 1
 
-      # GitHub OIDC, like npm: the registry trusts this repository's
-      # workflow for the io.github.Venut-Technologies namespace, so there is
-      # no token to store. An interactive login into the organisation's
-      # namespace is refused (registry issues #1649, #1537); this is the path
-      # that works.
       # The bundle's URL and digest exist only once this run has attached it,
       # so the mcpb package is added to server.json here rather than kept in
       # the repository.
@@ -269,6 +264,11 @@ jobs:
           '
           cat server.json
 
+      # GitHub OIDC, like npm: the registry trusts this repository's
+      # workflow for the io.github.Venut-Technologies namespace, so there is
+      # no token to store. An interactive login into the organisation's
+      # namespace is refused (registry issues #1649, #1537); this is the path
+      # that works.
       - name: Publish to the MCP Registry
         if: steps.registry.outputs.skip != 'true'
         run: |
