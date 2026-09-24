@@ -51,8 +51,9 @@
     "prepare": "npm run build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.test.json",
-    "lint": "biome check --error-on-warnings src tests",
-    "format": "biome check --write src tests"
+    "lint": "biome check --error-on-warnings src tests scripts",
+    "format": "biome check --write src tests scripts",
+    "demo-library": "tsx scripts/make-demo-library.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
@@ -62,6 +63,7 @@
     "@anthropic-ai/mcpb": "2.1.2",
     "@biomejs/biome": "^2.0.0",
     "@types/node": "^22.0.0",
+    "tsx": "4.23.15",
     "typescript": "^7.0.2",
     "vitest": "^5.0.0"
   }
