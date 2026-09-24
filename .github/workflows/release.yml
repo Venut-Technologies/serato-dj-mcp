@@ -128,10 +128,20 @@ jobs:
           grep -E '^\[[^]]+\]: ' CHANGELOG.md >> /tmp/notes.md
           cat /tmp/notes.md
 
+      # Idempotent, like the publishing steps below it: re-running a tag is the
+      # normal way to finish a release that failed after this point, and
+      # `gh release create` answers an existing release with 422, which would
+      # stop the re-run before it reached the step it was started for. The
+      # existing release is left as it is -- its notes came from the same
+      # changelog entry.
       - name: Create the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "GitHub Release $GITHUB_REF_NAME already exists, skipping"
+            exit 0
+          fi
           gh release create "$GITHUB_REF_NAME" \
             --title "$GITHUB_REF_NAME" \
             --notes-file /tmp/notes.md \
@@ -223,22 +233,28 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # The registry verifies the listing against this version's metadata on
-      # npm (its mcpName must match), and a version published seconds ago may
-      # not be visible yet. Wait for it rather than fail on a race.
-      - name: Wait until npm serves this version
+      # The registry reads mcpName from npm the moment it is asked, and npm
+      # can take minutes to serve a version it has just accepted: 5 min 07 s
+      # was measured on bandcamp-mcp 0.1.2, whose 0.1.1 reached npm but not
+      # the registry because the registry asked right after publishing. Wait
+      # up to fifteen minutes for npm to answer with this version's mcpName.
+      - name: Wait until npm serves this version's mcpName
         if: steps.registry.outputs.skip != 'true'
         run: |
           version="${{ steps.version.outputs.version }}"
-          for i in $(seq 1 30); do
-            if [ "$(npm view "serato-dj-mcp@$version" version 2>/dev/null || true)" = "$version" ]; then
-              echo "npm serves $version"
-              exit 0
+          want="$(node -p 'require("./server.json").name')"
+          deadline=$((SECONDS + 900))
+          until [ "$(npm view "serato-dj-mcp@$version" mcpName 2>/dev/null || true)" = "$want" ]; do
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "npm has not served serato-dj-mcp@$version with mcpName $want for fifteen minutes."
+              echo "The registry checks npm itself, so publishing now would fail with 400."
+              echo "If npm has the version, re-run this workflow once it serves it."
+              exit 1
             fi
-            sleep 10
+            echo "npm does not serve serato-dj-mcp@$version with mcpName yet; waiting"
+            sleep 15
           done
-          echo "npm still does not serve $version after five minutes"
-          exit 1
+          echo "npm serves serato-dj-mcp@$version with mcpName $want"
 
       # The bundle's URL and digest exist only once this run has attached it,
       # so the mcpb package is added to server.json here rather than kept in
@@ -273,4 +289,25 @@ jobs:
         if: steps.registry.outputs.skip != 'true'
         run: |
           /tmp/mcp-publisher login github-oidc
-          /tmp/mcp-publisher publish server.json
+          # npm can still answer the registry with a stale 404 after it has
+          # answered us, so retry that one failure -- a 400 naming this
+          # version as not found -- and nothing else. A schema or auth error
+          # fails on the first attempt, not a minute later.
+          for attempt in 1 2 3; do
+            if output="$(/tmp/mcp-publisher publish server.json 2>&1)"; then
+              echo "$output"
+              exit 0
+            fi
+            echo "$output"
+            case "$output" in
+              *"status 400"*"was not found"*) ;;
+              *)
+                echo "Not the npm-propagation failure; not retrying."
+                exit 1
+                ;;
+            esac
+            echo "Attempt $attempt: the registry cannot see this version on npm yet; waiting"
+            sleep 30
+          done
+          echo "The registry could not see serato-dj-mcp@${{ steps.version.outputs.version }} on npm after three attempts."
+          exit 1
