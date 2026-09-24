@@ -7,8 +7,15 @@ changes.
 
 ## [Unreleased]
 
+### Added
+
+- `mcpName` in `package.json`, the name under which this server is listed in the official MCP
+  Registry (`io.github.Venut-Technologies/serato-dj-mcp`).
+
 ### Changed
 
+- The package description says what the server does for a DJ, including that it writes new
+  crates after a preview, instead of only "staging" them.
 - Every tool now states all four MCP hints and `openWorldHint: false`, with its title repeated
   inside `annotations`. `apply_changes` is now marked destructive: it only adds crates, but it
   writes into Serato's own database, rotates old backups out and has no undo tool, so a client

@@ -1,7 +1,8 @@
 {
   "name": "serato-dj-mcp",
   "version": "0.1.0",
-  "description": "MCP server for Serato DJ libraries — search and audit tracks, inspect crates, and safely stage crate creation.",
+  "mcpName": "io.github.Venut-Technologies/serato-dj-mcp",
+  "description": "Ask Claude or another AI assistant about your Serato DJ library: harmonic search by BPM and Camelot key, crate browsing, duplicate and missing-file audits, and new crates built with a preview before anything is written; runs locally and is not affiliated with Serato.",
   "keywords": [
     "mcp",
     "mcp-server",
@@ -11,7 +12,13 @@
     "dj",
     "crates",
     "music-library",
-    "sqlite"
+    "sqlite",
+    "modelcontextprotocol",
+    "dj-library",
+    "harmonic-mixing",
+    "camelot",
+    "bpm",
+    "duplicates"
   ],
   "homepage": "https://github.com/Venut-Technologies/serato-dj-mcp#readme",
   "bugs": {
