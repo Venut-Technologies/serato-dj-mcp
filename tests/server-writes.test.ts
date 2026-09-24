@@ -79,22 +79,8 @@ describe("write tools over the wire", () => {
     await Promise.all([server.connect(st), client.connect(ct)]);
     try {
       const { tools } = await client.listTools();
-      const apply = tools.find((t) => t.name === "apply_changes");
-      expect(apply?.annotations?.readOnlyHint).toBe(false);
-      // D1: stage_crate is additive (never destructive); discard_changes
-      // deletes the user's staged work, so it alone carries destructiveHint.
-      const stage = tools.find((t) => t.name === "stage_crate");
-      expect(stage?.annotations).toMatchObject({
-        readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: false,
-      });
-      const discard = tools.find((t) => t.name === "discard_changes");
-      expect(discard?.annotations).toMatchObject({
-        readOnlyHint: false,
-        destructiveHint: true,
-        idempotentHint: false,
-      });
+      // Every tool's annotations are pinned in tests/annotations.test.ts.
+      expect(tools.map((t) => t.name)).toEqual(expect.arrayContaining(WRITE_TOOLS));
 
       const found = await client.callTool({
         name: "search_tracks",

@@ -7,6 +7,14 @@ changes.
 
 ## [Unreleased]
 
+### Changed
+
+- Every tool now states all four MCP hints and `openWorldHint: false`, with its title repeated
+  inside `annotations`. `apply_changes` is now marked destructive: it only adds crates, but it
+  writes into Serato's own database, rotates old backups out and has no undo tool, so a client
+  that asks before destructive calls will ask before this one. `discard_changes` is marked
+  idempotent.
+
 ## [0.1.0] - 2026-09-19
 
 The first release: reading, auditing and — behind a flag — crate writing.

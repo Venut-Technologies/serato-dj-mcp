@@ -71,19 +71,38 @@ import {
 } from "./tools/stage-crate.js";
 import { PACKAGE_VERSION as VERSION } from "./version.js";
 
-const RO = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
+/** No tool reaches outside the user's own computer: every one reads or
+ *  writes local files, so openWorldHint is false throughout. */
+const RO = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+} as const;
 
-/** Writes are additive -- a new crate, never an overwrite or a delete --
- *  so destructiveHint stays false; none of them is idempotent. */
-const WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false } as const;
+/** stage_crate only adds to the stage file -- never an overwrite or a
+ *  delete -- so destructiveHint stays false; a repeat is refused, not
+ *  repeated, but it is not advertised as idempotent. */
+const WRITE = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: false,
+  openWorldHint: false,
+} as const;
 
-/** discard_changes deletes the user's staged work -- the one write tool
- *  whose effect is actually destructive. */
+/** apply_changes writes into Serato's own database, rotates old backups out
+ *  and has no undo tool; discard_changes deletes the user's staged work.
+ *  Both are destructive in the sense a client should ask before calling. */
 const DESTRUCTIVE_WRITE = {
   readOnlyHint: false,
   destructiveHint: true,
   idempotentHint: false,
+  openWorldHint: false,
 } as const;
+
+/** Discarding the same staged id, or everything, a second time changes
+ *  nothing more. */
+const IDEMPOTENT_DESTRUCTIVE_WRITE = { ...DESTRUCTIVE_WRITE, idempotentHint: true } as const;
 
 const names = new WeakMap<Server, string[]>();
 
@@ -121,7 +140,9 @@ function describeTool(
       target: "draft-7",
       io: "output",
     }) as Tool["outputSchema"],
-    annotations,
+    // The title is repeated inside annotations for clients that read it
+    // only from there (the field predates the top-level one).
+    annotations: { title, ...annotations },
   };
 }
 
@@ -302,7 +323,7 @@ export function createServer(cli: Cli): Server {
           applyChangesDescription,
           applyChangesInput,
           applyChangesOutput,
-          WRITE,
+          DESTRUCTIVE_WRITE,
         ),
         call: async (raw) => toCallToolResult(await applyChanges(raw, writeCtx)),
       },
@@ -313,7 +334,7 @@ export function createServer(cli: Cli): Server {
           discardChangesDescription,
           discardChangesInput,
           discardChangesOutput,
-          DESTRUCTIVE_WRITE,
+          IDEMPOTENT_DESTRUCTIVE_WRITE,
         ),
         call: async (raw) => toCallToolResult(await discardChanges(raw, writeCtx)),
       },
