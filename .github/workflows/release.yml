@@ -65,6 +65,16 @@ jobs:
             echo "tag $GITHUB_REF_NAME says $tag, package.json says $pkg"
             exit 1
           fi
+          # server.json is what the MCP Registry step below publishes; it
+          # must describe this same version, or the registry entry would
+          # point at a different npm release than the one just published.
+          for v in "$(node -p 'require("./server.json").version')" \
+                   "$(node -p 'require("./server.json").packages.find(p => p.registryType === "npm").version')"; do
+            if [ "$v" != "$tag" ]; then
+              echo "tag $GITHUB_REF_NAME says $tag, server.json says $v"
+              exit 1
+            fi
+          done
           echo "version=$tag" >> "$GITHUB_OUTPUT"
 
       # The same checks CI runs on every push, once more on the tagged commit.
@@ -141,3 +151,68 @@ jobs:
       - name: Publish to npm
         if: steps.published.outputs.skip != 'true'
         run: npm publish --provenance --access public
+
+      # The official MCP Registry lists this server as
+      # io.github.Venut-Technologies/serato-dj-mcp and points clients at the
+      # npm package, so it goes after npm. mcp-publisher is pinned to a
+      # release and checked against the sha256 that release publishes in
+      # registry_1.8.1_checksums.txt; moving to a new version means reading
+      # its notes and replacing both lines.
+      - name: Install mcp-publisher
+        env:
+          MCP_PUBLISHER_VERSION: "1.8.1"
+          MCP_PUBLISHER_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc
+        run: |
+          curl -fsSL -o /tmp/mcp-publisher.tar.gz \
+            "https://github.com/modelcontextprotocol/registry/releases/download/v${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz"
+          echo "${MCP_PUBLISHER_SHA256}  /tmp/mcp-publisher.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/mcp-publisher.tar.gz -C /tmp mcp-publisher
+          /tmp/mcp-publisher --version
+
+      # Same reasoning as the npm check above: re-running a tag's workflow
+      # must not fail on a version the registry already has (it answers a
+      # duplicate with HTTP 400). Only a 200 for this exact name and version
+      # skips; a 404 or anything else goes on to publish, which then says
+      # what is wrong.
+      - name: Is this version already in the MCP Registry?
+        id: registry
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          name="$(node -p 'encodeURIComponent(require("./server.json").name)')"
+          status="$(curl -s -o /dev/null -w '%{http_code}' \
+            "https://registry.modelcontextprotocol.io/v0.1/servers/${name}/versions/${version}" || true)"
+          if [ "$status" = "200" ]; then
+            echo "already in the registry, skipping"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "registry answered $status, publishing"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The registry verifies the listing against this version's metadata on
+      # npm (its mcpName must match), and a version published seconds ago may
+      # not be visible yet. Wait for it rather than fail on a race.
+      - name: Wait until npm serves this version
+        if: steps.registry.outputs.skip != 'true'
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          for i in $(seq 1 30); do
+            if [ "$(npm view "serato-dj-mcp@$version" version 2>/dev/null || true)" = "$version" ]; then
+              echo "npm serves $version"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "npm still does not serve $version after five minutes"
+          exit 1
+
+      # GitHub OIDC, like npm: the registry trusts this repository's
+      # workflow for the io.github.Venut-Technologies namespace, so there is
+      # no token to store. An interactive login into the organisation's
+      # namespace is refused (registry issues #1649, #1537); this is the path
+      # that works.
+      - name: Publish to the MCP Registry
+        if: steps.registry.outputs.skip != 'true'
+        run: |
+          /tmp/mcp-publisher login github-oidc
+          /tmp/mcp-publisher publish server.json

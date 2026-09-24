@@ -11,6 +11,8 @@ changes.
 
 - `mcpName` in `package.json`, the name under which this server is listed in the official MCP
   Registry (`io.github.Venut-Technologies/serato-dj-mcp`).
+- Each release is now published to the official MCP Registry as well as npm, so MCP clients and
+  catalogs that read the registry can find and install the server.
 
 ### Changed
 

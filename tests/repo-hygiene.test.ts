@@ -82,6 +82,15 @@ function hitsExceptSelf(pattern: RegExp): string[] {
 // Every identifier rule below derives its allowed form from this one list.
 const SYNTHETIC_IDS = ["11111111111111111111111111111111", "22222222222222222222222222222222"];
 
+// Published checksums of third-party release artifacts, pinned in the
+// release workflow. They are someone else's public file digests, not a
+// library's identity, and each is listed here by name so that no other long
+// hex run can pass as one.
+const PUBLIC_DIGESTS = [
+  // mcp-publisher_linux_amd64.tar.gz, modelcontextprotocol/registry v1.8.1
+  "a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc",
+];
+
 describe("repository hygiene", () => {
   it("tracks no file list of its own that git does not know about", () => {
     // Guards the guard: an empty tracked list would make every rule vacuous.
@@ -107,7 +116,7 @@ describe("repository hygiene", () => {
   // carry either synthetic id, or the real thing. Kept as its own rule so a
   // failure says which form slipped through.
   it("carries no database identifier as a bare hex run either", () => {
-    const allowed = new Set(SYNTHETIC_IDS);
+    const allowed = new Set([...SYNTHETIC_IDS, ...PUBLIC_DIGESTS]);
     const found: string[] = [];
     forEachLine((path, lineNo, line) => {
       for (const m of line.matchAll(/[0-9a-f-]+/gi)) {
