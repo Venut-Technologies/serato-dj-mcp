@@ -3,8 +3,8 @@
 This page is for anyone who wants to check `serato-dj-mcp` without a Serato library of their own,
 such as a reviewer of an extension directory. It takes about five minutes on a Mac.
 
-**macOS only.** The extension is built for macOS and was tested there; it does not install on
-Windows or Linux.
+**macOS only.** The extension was built and tested on macOS, and its manifest declares macOS as
+its only platform. Windows and Linux are not supported.
 
 The demo library is invented from start to finish: 59 tracks, 4 crates, made-up artists, titles and
 labels. Any resemblance to a real artist, title or label is accidental. It is built on your Mac by
@@ -96,9 +96,10 @@ sqlite3 -readonly ~/serato-demo/Library/root.sqlite "SELECT name FROM container 
 
 - Remove the extension in Settings → Extensions.
 - Delete `~/serato-demo`.
-- Delete what the extension kept: `~/Library/Caches/serato-dj-mcp` (a snapshot copy of the demo
-  library) and, if you tried writing, `~/Library/Application Support/serato-dj-mcp` (staged crates,
-  the write manifest and the backups).
+- Delete what the extension kept, unless you also use this server with a real Serato library:
+  `~/Library/Caches/serato-dj-mcp` (a snapshot copy of the demo library) and, if you tried writing,
+  `~/Library/Application Support/serato-dj-mcp` (staged crates, the write manifest and the
+  backups — for a real library too, if you have one, so keep this folder in that case).
 
 Everything the extension reads, writes and sends is listed in [PRIVACY.md](../PRIVACY.md): it makes
 no network requests and has no telemetry.
