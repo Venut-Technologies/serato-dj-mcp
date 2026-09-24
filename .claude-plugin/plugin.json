@@ -18,5 +18,14 @@
     "harmonic-mixing",
     "camelot",
     "mcp"
-  ]
+  ],
+  "mcpServers": {
+    "serato": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "serato-dj-mcp"
+      ]
+    }
+  }
 }

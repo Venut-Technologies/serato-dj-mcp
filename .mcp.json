@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "serato": {
-      "command": "npx",
-      "args": ["-y", "serato-dj-mcp"]
-    }
-  }
-}

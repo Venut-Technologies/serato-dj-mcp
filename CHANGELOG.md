@@ -17,7 +17,7 @@ changes.
   `io.github.Venut-Technologies/serato-dj-mcp` (the new `mcpName` in `package.json`), so MCP
   clients and catalogs that read the registry can find and install the server ([c296ac9],
   [5ed9177], [06019b9]).
-- A Claude Code plugin (`.claude-plugin/plugin.json` and `.mcp.json`) that starts the server with
+- A Claude Code plugin (`.claude-plugin/plugin.json`) that starts the server with
   `npx -y serato-dj-mcp`, read-only ([0f73224]).
 - [PRIVACY.md](PRIVACY.md): what the server reads, what it writes and where, and that it makes no
   network requests and sends no telemetry, with the source file behind each statement
