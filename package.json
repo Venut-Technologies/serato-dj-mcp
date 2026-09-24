@@ -59,6 +59,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@anthropic-ai/mcpb": "2.1.2",
     "@biomejs/biome": "^2.0.0",
     "@types/node": "^22.0.0",
     "typescript": "^7.0.2",

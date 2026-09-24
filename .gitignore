@@ -44,3 +44,7 @@ database V2
 # Agent instructions live in the private governance repository (symlinked, never committed)
 AGENTS.md
 CLAUDE.local.md
+
+# Claude Desktop extension builds (scripts/build-mcpb.sh)
+build/
+*.mcpb

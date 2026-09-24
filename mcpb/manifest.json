@@ -1,0 +1,80 @@
+{
+  "manifest_version": "0.3",
+  "name": "serato-dj-mcp",
+  "display_name": "Serato DJ library",
+  "version": "0.1.0",
+  "description": "Ask Claude about your Serato DJ library: harmonic search, crate audits, previewed crate building.",
+  "long_description": "Ask Claude about your Serato DJ 4.x library: find tracks by BPM, Camelot key and harmonic compatibility, genre or date added; browse your crates; audit the library for duplicates, missing files, tracks with no BPM or key, and tracks in no crate. With writing switched on, Claude can build new crates for you: they are staged and shown to you first, and written only when you confirm and Serato is closed, after both library databases are backed up.\n\nEverything runs on your Mac. The server makes no network requests and sends no telemetry; reads go through a snapshot copy of the library, so a question cannot change it. Tested on macOS with Serato DJ Lite 4.0.9; Windows is untested.\n\nNot affiliated with, endorsed by, or supported by Serato. Serato and Serato DJ are trademarks of their respective owner.",
+  "author": {
+    "name": "Venut Technologies",
+    "url": "https://github.com/Venut-Technologies"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Venut-Technologies/serato-dj-mcp"
+  },
+  "homepage": "https://github.com/Venut-Technologies/serato-dj-mcp#readme",
+  "documentation": "https://github.com/Venut-Technologies/serato-dj-mcp#readme",
+  "support": "https://github.com/Venut-Technologies/serato-dj-mcp/issues",
+  "icon": "icon.png",
+  "server": {
+    "type": "node",
+    "entry_point": "launch.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/launch.js"],
+      "env": {
+        "SERATO_LIBRARY_PATH": "${user_config.library_path}",
+        "SERATO_DJ_MCP_BUNDLE_ALLOW_WRITES": "${user_config.allow_writes}",
+        "SERATO_DJ_MCP_BUNDLE_ALLOW_RAW_SQL": "${user_config.allow_raw_sql}"
+      }
+    }
+  },
+  "tools": [
+    { "name": "list_libraries", "description": "The Serato libraries this server can see, with version and locations." },
+    { "name": "search_tracks", "description": "Search tracks by text, BPM, Camelot key or compatible keys, genre, rating, date added, crate and flags." },
+    { "name": "get_tracks", "description": "Fetch tracks by id." },
+    { "name": "list_crates", "description": "The crates in the Serato Library, with track counts." },
+    { "name": "get_crate_tracks", "description": "The tracks of one crate, in the crate's own order." },
+    { "name": "audit_library", "description": "Find duplicates, missing files, tracks with no BPM or key, and tracks in no crate." },
+    { "name": "run_sql", "description": "One read-only SELECT against a snapshot copy. Only with \"Allow raw SQL\" on." },
+    { "name": "stage_crate", "description": "Stage a new crate from track ids; nothing is written yet. Only with \"Allow writing crates\" on." },
+    { "name": "preview_changes", "description": "Show every staged crate and its tracks. Only with \"Allow writing crates\" on." },
+    { "name": "apply_changes", "description": "Write the staged crates while Serato is closed, after a backup. Only with \"Allow writing crates\" on." },
+    { "name": "discard_changes", "description": "Drop staged crates without writing them. Only with \"Allow writing crates\" on." }
+  ],
+  "keywords": ["serato", "dj", "dj-library", "crates", "harmonic-mixing", "camelot", "bpm", "duplicates"],
+  "license": "MIT",
+  "privacy_policies": [
+    "https://github.com/Venut-Technologies/serato-dj-mcp/blob/main/PRIVACY.md"
+  ],
+  "compatibility": {
+    "platforms": ["darwin"],
+    "runtimes": {
+      "node": ">=22.16.0"
+    }
+  },
+  "user_config": {
+    "library_path": {
+      "type": "directory",
+      "title": "Serato library folder",
+      "description": "Optional. The folder holding master.sqlite. Leave empty to use the library in ~/Library/Application Support/Serato and on connected drives.",
+      "required": false,
+      "default": ""
+    },
+    "allow_writes": {
+      "type": "boolean",
+      "title": "Allow writing crates",
+      "description": "Adds tools that stage new crates, show them to you, and write them into Serato only when you confirm and Serato is closed. Both library databases are backed up before every write. Off by default.",
+      "required": false,
+      "default": false
+    },
+    "allow_raw_sql": {
+      "type": "boolean",
+      "title": "Allow raw SQL",
+      "description": "Adds run_sql: read-only SELECT queries against a copy of the library, returning raw rows with full file paths. Off by default.",
+      "required": false,
+      "default": false
+    }
+  }
+}

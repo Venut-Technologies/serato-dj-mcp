@@ -70,9 +70,10 @@ jobs:
           # point at a different npm release than the one just published.
           for v in "$(node -p 'require("./server.json").version')" \
                    "$(node -p 'require("./server.json").packages.find(p => p.registryType === "npm").version')" \
-                   "$(node -p 'require("./.claude-plugin/plugin.json").version')"; do
+                   "$(node -p 'require("./.claude-plugin/plugin.json").version')" \
+                   "$(node -p 'require("./mcpb/manifest.json").version')"; do
             if [ "$v" != "$tag" ]; then
-              echo "tag $GITHUB_REF_NAME says $tag, server.json or plugin.json says $v"
+              echo "tag $GITHUB_REF_NAME says $tag, server.json, plugin.json or mcpb/manifest.json says $v"
               exit 1
             fi
           done
@@ -83,6 +84,17 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+      # The Claude Desktop extension: the same dist/, its production
+      # dependencies as locked, and mcpb/manifest.json, packed by the mcpb
+      # version pinned in package-lock.json. Built before anything is
+      # published, so a bundle that does not build stops the release.
+      - name: Build the Claude Desktop extension
+        id: mcpb
+        run: |
+          file="$(scripts/build-mcpb.sh build | tail -1)"
+          echo "file=$file" >> "$GITHUB_OUTPUT"
+          echo "name=$(basename "$file")" >> "$GITHUB_OUTPUT"
 
       - name: The tarball carries dist/ and nothing from tests/
         run: |
@@ -124,6 +136,27 @@ jobs:
             --title "$GITHUB_REF_NAME" \
             --notes-file /tmp/notes.md \
             --verify-tag
+
+      # The registry entry below records this file's sha256, so the file on
+      # the release must never change after it was first attached. On a
+      # re-run the bundle already there is kept and its own digest is used,
+      # rather than replaced by a rebuild whose bytes may differ.
+      - name: Attach the extension to the GitHub Release
+        id: asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          name="${{ steps.mcpb.outputs.name }}"
+          if gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name' | grep -qx "$name"; then
+            echo "$name is already attached, keeping it"
+            gh release download "$GITHUB_REF_NAME" --pattern "$name" --dir /tmp/attached
+            file="/tmp/attached/$name"
+          else
+            gh release upload "$GITHUB_REF_NAME" "${{ steps.mcpb.outputs.file }}"
+            file="${{ steps.mcpb.outputs.file }}"
+          fi
+          echo "sha256=$(sha256sum "$file" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "url=https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${name}" >> "$GITHUB_OUTPUT"
 
       # A version can already be on the registry: 0.1.0 was published by hand
       # before this workflow existed, and re-running a tag's workflow is a
@@ -212,6 +245,30 @@ jobs:
       # no token to store. An interactive login into the organisation's
       # namespace is refused (registry issues #1649, #1537); this is the path
       # that works.
+      # The bundle's URL and digest exist only once this run has attached it,
+      # so the mcpb package is added to server.json here rather than kept in
+      # the repository.
+      - name: List the extension in server.json
+        if: steps.registry.outputs.skip != 'true'
+        env:
+          MCPB_URL: ${{ steps.asset.outputs.url }}
+          MCPB_SHA256: ${{ steps.asset.outputs.sha256 }}
+        run: |
+          node -e '
+            const fs = require("fs");
+            const s = JSON.parse(fs.readFileSync("server.json", "utf8"));
+            s.packages = s.packages.filter((p) => p.registryType !== "mcpb");
+            s.packages.push({
+              registryType: "mcpb",
+              identifier: process.env.MCPB_URL,
+              version: s.version,
+              fileSha256: process.env.MCPB_SHA256,
+              transport: { type: "stdio" },
+            });
+            fs.writeFileSync("server.json", JSON.stringify(s, null, 2) + "\n");
+          '
+          cat server.json
+
       - name: Publish to the MCP Registry
         if: steps.registry.outputs.skip != 'true'
         run: |
