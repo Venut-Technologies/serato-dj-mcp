@@ -20,29 +20,28 @@
       },
       "packageArguments": [
         {
-          "type": "named",
-          "name": "--library",
-          "description": "Serato library folder, the one holding master.sqlite. Optional on macOS, where the library in ~/Library/Application Support/Serato and on mounted drives is found automatically.",
-          "format": "filepath",
+          "type": "positional",
+          "valueHint": "allow_writes",
+          "description": "Optional, off by default. The literal flag --allow-writes adds stage_crate, preview_changes, apply_changes and discard_changes: new crates are staged, shown for review, and written only when confirmed while Serato is closed, after both library databases are backed up. Leave it out and no write tool exists.",
+          "choices": [
+            "--allow-writes"
+          ],
           "isRequired": false
         },
         {
-          "type": "named",
-          "name": "--allow-writes",
-          "description": "Flag, takes no value. Adds stage_crate, preview_changes, apply_changes and discard_changes, so new crates can be staged, previewed and written while Serato is closed. Off unless given.",
-          "isRequired": false
-        },
-        {
-          "type": "named",
-          "name": "--allow-raw-sql",
-          "description": "Flag, takes no value. Adds run_sql: one read-only SELECT against a snapshot copy, with raw rows and full paths. Off unless given.",
+          "type": "positional",
+          "valueHint": "allow_raw_sql",
+          "description": "Optional, off by default. The literal flag --allow-raw-sql adds run_sql: one read-only SELECT against a snapshot copy of the library, returning raw rows with full file paths.",
+          "choices": [
+            "--allow-raw-sql"
+          ],
           "isRequired": false
         }
       ],
       "environmentVariables": [
         {
           "name": "SERATO_LIBRARY_PATH",
-          "description": "Same as --library; --library wins when both are given.",
+          "description": "Optional. The Serato library folder, the one holding master.sqlite. Not needed on macOS, where the library in ~/Library/Application Support/Serato and on mounted drives is found automatically.",
           "format": "filepath",
           "isRequired": false
         }
