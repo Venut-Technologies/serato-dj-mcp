@@ -184,6 +184,9 @@ Serato when it next syncs, so every crate goes to the top level.
 
 ## Privacy
 
+The same, as a standalone policy with the source file behind each statement:
+[PRIVACY.md](PRIVACY.md).
+
 - **Everything runs on your computer.** The server is a local process your MCP client starts. It
   sends no telemetry, has no analytics, and makes no network requests. The only other program it
   runs is `ps`, to check whether Serato is running before a write.
