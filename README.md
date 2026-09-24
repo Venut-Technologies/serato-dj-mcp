@@ -1,15 +1,18 @@
 # serato-dj-mcp
 
+[![npm](https://img.shields.io/npm/v/serato-dj-mcp.svg)](https://www.npmjs.com/package/serato-dj-mcp)
 [![CI](https://github.com/Venut-Technologies/serato-dj-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/Venut-Technologies/serato-dj-mcp/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
+Ask Claude about your Serato DJ library: find tracks that mix harmonically by BPM and Camelot
+key, browse your crates, audit the library for duplicates and missing files, and have new crates
+built for you, shown to you before anything is written. It works through the
+[Model Context Protocol](https://modelcontextprotocol.io) (MCP), the standard way AI apps such as
+Claude Desktop, Claude Code, Cursor and VS Code connect to tools on your computer: this is a small
+local server that answers from your library and sends nothing anywhere itself.
+
 **Status: experimental.** Pre-1.0 and actively developed: a minor version may change
 behaviour or break compatibility, a patch never does.
-
-Talk to your Serato DJ library from an AI assistant. `serato-dj-mcp` is a local
-[Model Context Protocol](https://modelcontextprotocol.io) server that lets Claude, or any other MCP
-client, search your tracks by BPM, key and genre, look inside your crates, find gaps and
-duplicates in the library, and — only when you switch it on — build new crates for you.
 
 > [!IMPORTANT]
 > **Not affiliated with, endorsed by, or supported by Serato.** Serato and Serato DJ are
@@ -21,19 +24,107 @@ duplicates in the library, and — only when you switch it on — build new crat
 Once the server is connected, you talk to your assistant as usual:
 
 - "Find tracks between 122 and 126 BPM in 8A or 9A that I added this year."
-- "Which tracks in my library have no BPM or no key?"
+- "Give me tracks that mix harmonically out of 8A, around 124 BPM."
 - "Show me what's in my *Warm Up* crate, in order."
 - "Audit my library: duplicates, missing files, tracks that aren't in any crate."
-- "Give me tracks that mix harmonically out of 8A, around 124 BPM."
+- "Which tracks in my library have no BPM or no key?"
 
-With writes enabled (`--allow-writes`):
+With crate writing switched on:
 
 - "Build a crate called *Friday Opening* from the twenty tracks you just found, and show me the
-  list before writing anything."
-- "I've closed Serato — apply the staged crate."
+  list before writing anything." Then, once you have closed Serato: "Apply the staged crate."
 
 The assistant does the searching; the server answers from your library and, when asked, writes
 only what you approved.
+
+## Install
+
+**Works on macOS.** Tested with Serato DJ Lite 4.0.9 on macOS; the test suite runs in CI on macOS
+and Linux with Node.js 22.16 and 24. **Windows is untested** — see [Compatibility](#compatibility).
+The Claude Desktop extension and the Claude Code setup below were tried by hand on macOS; the
+Cursor and VS Code setups follow those editors' documentation and have not been tried.
+
+Every setup starts the server read-only. Crate writing is a separate switch, described
+[below](#read-only-by-default-writes-on-request).
+
+### Claude Desktop
+
+**As an extension (no Node.js needed).** Download `serato-dj-mcp-<version>.mcpb` from the
+[latest release](https://github.com/Venut-Technologies/serato-dj-mcp/releases/latest) (attached
+from version 0.1.1 on) and open it; Claude Desktop shows what it contains and installs it. Its
+settings let you point it at a library folder and switch on crate writing or raw SQL; all three
+can stay as they are.
+
+**Or by hand**, with [Node.js](https://nodejs.org) 22.16 or newer installed: open Settings →
+Developer → Edit Config and add the server to `claude_desktop_config.json`, then restart Claude
+Desktop.
+
+```json
+{
+  "mcpServers": {
+    "serato": {
+      "command": "npx",
+      "args": ["-y", "serato-dj-mcp"]
+    }
+  }
+}
+```
+
+### Claude Code
+
+```sh
+claude mcp add serato -- npx -y serato-dj-mcp
+```
+
+Add `--scope user` before `serato` to have it in every project. The repository is also a Claude
+Code plugin that starts the same command.
+
+### Cursor
+
+[Add to Cursor](https://cursor.com/install-mcp?name=serato&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsInNlcmF0by1kai1tY3AiXX0%3D),
+or add the same `mcpServers` entry as for Claude Desktop to `~/.cursor/mcp.json`. The link opens
+`cursor://anysphere.cursor-deeplink/mcp/install?name=serato&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsInNlcmF0by1kai1tY3AiXX0=`,
+which asks Cursor to add `{"command":"npx","args":["-y","serato-dj-mcp"]}` under the name `serato`.
+
+### VS Code
+
+[Install in VS Code](https://vscode.dev/redirect/mcp/install?name=serato&config=%7B%22type%22%3A%22stdio%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22serato-dj-mcp%22%5D%7D),
+or from a terminal:
+
+```sh
+code --add-mcp '{"name":"serato","type":"stdio","command":"npx","args":["-y","serato-dj-mcp"]}'
+```
+
+### Options for any client
+
+Add options after `serato-dj-mcp` in `args`, for example
+`"args": ["-y", "serato-dj-mcp", "--allow-writes"]`:
+
+- `--library <path>` — the Serato library folder (the one holding `master.sqlite`). Not needed on
+  macOS, where the library in `~/Library/Application Support/Serato` and on mounted drives is
+  found automatically.
+- `--allow-writes` — crate writing, see below.
+- `--allow-raw-sql` — adds `run_sql`, read-only SQL for developers.
+
+All options are listed under [Options](#options).
+
+`node:sqlite` is an experimental Node API and prints a warning to stderr; that is expected and
+harmless, because the MCP protocol travels over stdout.
+
+### From source, for developers
+
+```sh
+git clone https://github.com/Venut-Technologies/serato-dj-mcp.git
+cd serato-dj-mcp
+npm ci
+npm run build
+```
+
+Then use `"command": "node"` with `"args": ["/absolute/path/to/serato-dj-mcp/dist/index.js"]`, or
+`claude mcp add serato -- node /absolute/path/to/serato-dj-mcp/dist/index.js`.
+
+What the server reads, writes and sends is in [PRIVACY.md](PRIVACY.md): it makes no network
+requests and has no telemetry.
 
 ## Compatibility
 
@@ -45,45 +136,10 @@ only what you approved.
 | **Windows** | Untested. The server has no Windows-specific handling: pass `--library` explicitly, because automatic discovery only knows the macOS layout, and expect macOS-style cache and state directories under your user folder. The "is Serato running" check uses `ps`, which Windows does not have, so `apply_changes` may refuse to write rather than guess. |
 | **Linux** | Serato does not run on Linux; the test suite runs there in CI on synthetic fixtures. |
 | **Node.js** | 22.16 or newer, because `backup()` from `node:sqlite` lands there. Not assumed: CI runs the whole suite on 22.16 and on 24, on macOS and on Ubuntu. |
+| **Claude Desktop extension** | Runs in Claude Desktop's own Node.js, not yours. Checked by hand on 2026-09-24 with Claude Desktop 2.7032.0 on macOS, whose built-in Node.js is 24.21: installed, then `list_libraries` and `list_crates` answered with the library's data. |
 
 Everything this server assumes about the Serato library is written down in
 [docs/serato-4x-notes.md](docs/serato-4x-notes.md), with the measurement behind each claim.
-
-## Install
-
-The package is **not published to npm yet**. Until the first release, run it from source:
-
-```sh
-git clone https://github.com/Venut-Technologies/serato-dj-mcp.git
-cd serato-dj-mcp
-npm ci
-npm run build
-```
-
-Then point your MCP client at the built server. For Claude Desktop, in
-`claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "serato": {
-      "command": "node",
-      "args": ["/absolute/path/to/serato-dj-mcp/dist/index.js"]
-    }
-  }
-}
-```
-
-Claude Code: `claude mcp add serato -- node /absolute/path/to/serato-dj-mcp/dist/index.js`
-
-Add `"--allow-writes"` to `args` only if you want crate writing (see below).
-
-Once a release is on npm, the same configuration will work with
-`"command": "npx", "args": ["-y", "serato-dj-mcp"]`.
-
-This server uses `backup()` from `node:sqlite`, which was added in Node 22.16. `node:sqlite` is
-an experimental Node API and prints a warning to stderr; that is expected and harmless, because
-the MCP protocol travels over stdout.
 
 ## Read-only by default, writes on request
 

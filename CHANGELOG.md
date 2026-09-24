@@ -30,6 +30,10 @@ changes.
 
 ### Changed
 
+- The README starts with what a DJ can do and ask, and installs from npm with `npx`: it said the
+  package was not on npm yet, which was also what the npm page showed. It now has setup steps for
+  Claude Desktop (extension or config), Claude Code, Cursor and VS Code, with install links for
+  the last two, and says which of them were tried and that Windows is untested.
 - The package description says what the server does for a DJ, including that it writes new
   crates after a preview, instead of only "staging" them.
 - Every tool now states all four MCP hints and `openWorldHint: false`, with its title repeated
