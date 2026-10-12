@@ -101,6 +101,14 @@ export function makeMasterFixture(
 ): string {
   const path = join(dir, "master.sqlite");
   const db = new DatabaseSync(path);
+  // One transaction for the whole fixture, committed just before close().
+  // Left to autocommit, every statement below is its own commit, and each
+  // commit flushes to disk. Measured 2026-10-12 on Windows 11 with Node
+  // 25.6.0: an empty library took about 530 ms to build that way and 19 ms
+  // this way, the 59-track demo library about 1800 ms and 40 ms. With every
+  // test file building fixtures at once, a test that builds the demo twice
+  // went past the 30 s timeout (seen once in a full run, on Node 24.21.0).
+  db.exec("BEGIN");
 
   // exec() applies the whole DDL in one go. Splitting on ";" would corrupt
   // trigger bodies, which contain semicolons inside BEGIN...END.
@@ -291,6 +299,7 @@ export function makeMasterFixture(
     }
   }
 
+  db.exec("COMMIT");
   db.close();
   return path;
 }
@@ -321,6 +330,8 @@ export function makeRootFixture(
   const path = join(dir, "root.sqlite");
   const rev = opts.revision ?? ROOT_BASE_REVISION;
   const db = new DatabaseSync(path);
+  // One transaction, for the reason given in makeMasterFixture.
+  db.exec("BEGIN");
   db.exec(readFileSync(join(HERE, "schema", "root-202.sql"), "utf8"));
 
   db.prepare("INSERT INTO serato (time_created, revision) VALUES (?, ?)").run(1_700_000_000, rev);
@@ -386,6 +397,7 @@ export function makeRootFixture(
     }
   }
 
+  db.exec("COMMIT");
   db.close();
   return path;
 }
