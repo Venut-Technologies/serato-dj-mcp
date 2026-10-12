@@ -15,7 +15,13 @@ jobs:
         # when a newer image breaks us. GitHub moves that label to Ubuntu 26
         # from 2026-10-19, so a CI failure on Linux around that date is the
         # image changing under us, not the commit that happened to be pushed.
-        os: [macos-latest, ubuntu-latest]
+        #
+        # windows-latest runs the same suite on synthetic fixtures, as Linux
+        # does: it proves the server's own file, path and process handling
+        # there, not that it works with a Serato installed on Windows. The
+        # checkout is LF on Windows too because of .gitattributes; without it
+        # the lint step fails on every file.
+        os: [macos-latest, ubuntu-latest, windows-latest]
         node: ["22.16", "24"]
     runs-on: ${{ matrix.os }}
     steps:
