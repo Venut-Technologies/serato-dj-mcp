@@ -76,7 +76,10 @@ enforces it and the tests that would fail if it stopped being true.
 
 8. **Two things that could do damage are held behind their own doors.** `run_sql` exists only with
    `--allow-raw-sql`, accepts a single `SELECT` or `WITH … SELECT`, and runs against the snapshot
-   copy, never the live library (`src/tools/run-sql.ts`). And writing on Windows is unsupported: the
-   running-Serato check needs `ps`, and where it cannot identify the process the server refuses to
-   write rather than guessing that Serato is closed. The README states this; the refusal is covered
-   by `tests/apply/serato.test.ts`.
+   copy, never the live library (`src/tools/run-sql.ts`). And writing on Windows is unverified: the
+   write path passes its tests there, but it has never been run against a Serato installed on
+   Windows, and what Serato records in the `lock` table there has not been measured. The
+   running-Serato check asks `tasklist` for the process name, compares it tolerantly, counts any
+   live Serato program behind a lock row as running, and where it cannot identify the process at
+   all the server refuses to write rather than guessing that Serato is closed. The README states
+   this; the rules are covered by `tests/apply/serato.test.ts`.

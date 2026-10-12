@@ -23,8 +23,13 @@ npm test            # vitest
 npm run build       # emits dist/
 ```
 
-All four must pass before a pull request is reviewed. CI runs lint and tests on macOS and Linux,
-and the build, typecheck and package check on Linux.
+All four must pass before a pull request is reviewed. CI runs lint and tests on macOS, Linux and
+Windows, and the build, typecheck and package check on Linux.
+
+On Windows the repository checks out with LF line endings whatever `core.autocrlf` says
+(`.gitattributes`), because Biome formats with LF. A platform-specific rule takes the platform as
+a parameter (see `src/paths.ts`, `src/discovery/index.ts`, `src/apply/serato.ts`), so that its
+test runs on every host and not only on the one it is about.
 
 `npm audit` reports a high-severity `tmp` advisory through `@anthropic-ai/mcpb`, the dev-only tool
 that packs the Claude Desktop extension. It sits on the path of `mcpb init`'s interactive prompts,

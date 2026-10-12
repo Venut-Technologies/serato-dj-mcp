@@ -10,14 +10,16 @@ this repository; the file that does each thing is named in brackets.
   crash reporting and no update check. The source contains no HTTP, socket or DNS code.
 - It talks only to the MCP client that started it (Claude Desktop, Claude Code, Cursor, VS Code or
   another client), over that process's standard input and output.
-- The only other program it runs is `ps`, and only to check whether Serato is running before a
-  write (`src/apply/serato.ts`).
+- The only other program it runs is `ps` — on Windows `tasklist.exe` from the Windows system
+  folder — and only to check whether Serato is running before a write (`src/apply/serato.ts`).
 
 ## What it reads
 
 - Serato's library databases (`master.sqlite` and `root.sqlite` in the Serato library folder, by
   default `~/Library/Application Support/Serato/Library`, and `_Serato_/Library` on drives mounted
-  under `/Volumes`) (`src/discovery/index.ts`).
+  under `/Volumes`; on Windows `%LOCALAPPDATA%\Serato\Library`, and `_Serato_\Library` on each
+  drive from `C:` to `Z:`, which it finds by asking every one of those letters whether that folder
+  exists) (`src/discovery/index.ts`).
   Reads go through a snapshot copy; the live files are opened read-only, except when
   `apply_changes` writes a crate (`src/snapshot/index.ts`, `src/read/session.ts`).
 - With `audit_library`'s `check_filesystem: true`, whether each track's file exists on disk, to
@@ -27,12 +29,13 @@ It does not read your audio, and nothing outside the Serato library and the two 
 
 ## What it writes, and where
 
-- **Cache directory** (`--cache-dir`, default `~/Library/Caches/serato-dj-mcp`): a snapshot copy of
-  your library database. Safe to delete at any time (`src/snapshot/index.ts`).
-- **State directory** (`--state-dir`, default `~/Library/Application Support/serato-dj-mcp`), only
-  with `--allow-writes`: staged crates, a manifest of every write, lock files, and backups of your
-  library databases taken before each write, the last ten kept (`src/stage/store.ts`,
-  `src/apply/manifest.ts`, `src/apply/backup.ts`).
+- **Cache directory** (`--cache-dir`, default `~/Library/Caches/serato-dj-mcp`, on Windows
+  `%LOCALAPPDATA%\serato-dj-mcp\Cache`): a snapshot copy of your library database. Safe to delete
+  at any time (`src/snapshot/index.ts`, `src/cli.ts`).
+- **State directory** (`--state-dir`, default `~/Library/Application Support/serato-dj-mcp`, on
+  Windows `%LOCALAPPDATA%\serato-dj-mcp\State`), only with `--allow-writes`: staged crates, a
+  manifest of every write, lock files, and backups of your library databases taken before each
+  write, the last ten kept (`src/stage/store.ts`, `src/apply/manifest.ts`, `src/apply/backup.ts`).
 - **Serato's `root.sqlite`**, only with `--allow-writes` and only when `apply_changes` is called with
   `confirm: true` while Serato is closed: new top-level crates, nothing else
   (`src/apply/transaction.ts`).

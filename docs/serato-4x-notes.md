@@ -109,3 +109,62 @@ to a working library, it was backed up byte for byte first and restored afterwar
 - The schema carries a `user_version`; 202 is the version used by Serato DJ Lite 4.0.9.
 - `master.sqlite` ships 51 migration scripts of its own, so this project treats an unrecognised
   schema version as a warning, never as a refusal.
+
+## Windows
+
+Everything above was measured on macOS. On Windows very little about Serato itself has been
+measured, and this section keeps the two apart.
+
+### Measured about Serato
+
+One per-drive store, a `location.sqlite` that Serato created in `<drive>:\_Serato_\Library` on a
+Windows machine, read on 2026-10-12. It is not known which Serato version wrote it.
+
+- Its schema `user_version` is 202 and its journal mode is `delete`.
+- `asset.portable_id` is relative to the drive's root, written with forward slashes and no
+  leading slash: a file at `D:\Some Folder\Artist - Title.mp3` is `Some Folder/Artist - Title.mp3`.
+- It has no `connection` table and no `lock` table. Those belong to `master.sqlite`.
+
+### Not measured about Serato
+
+No `master.sqlite` or `root.sqlite` written by Serato on Windows has been examined, and the server
+has never run beside Serato there. Each of these is an assumption the code makes:
+
+- **`connection.database_uri`.** Assumed to be a plain path with a drive letter or a
+  `\\server\share` prefix, with either separator: `D:\_Serato_\Library\location.sqlite` gives the
+  volume root `D:\`, and a `root.sqlite` gives the root of the drive it is on, on the further
+  assumption that the main library's `portable_id` is relative to that drive the way a per-drive
+  store's is. A path in another form gives no root for that location.
+- **The main library's folder.** `%LOCALAPPDATA%\Serato\Library`, from Serato's support article
+  "Backing up and moving your library", not from an installation.
+- **The `lock` table.** Whether Serato on Windows writes a row there, and what it puts in
+  `owner_process_name`. The server compares that name with the image name `tasklist` reports,
+  ignoring a directory, a trailing `.exe` and case, and also counts any live process behind a lock
+  row whose image name starts with `serato`. The name of Serato's executable was not checked
+  either.
+- **Everything about a write.** That Serato on Windows picks up a crate written to `root.sqlite`
+  the way it does on macOS, where it exports the crate file, and what it does with a crate name
+  that Windows does not allow as a file name (`? * " < > |` and others).
+
+### Measured about Windows itself
+
+On Windows 11 with Node.js 25.6.0, on 2026-10-12. These are about the operating system and
+SQLite, and they are why the code differs there.
+
+- `fsync` of a directory is impossible: `fsyncSync` on a read-only descriptor, of a directory or
+  a file, fails with `EPERM`.
+- A file that another handle has open cannot be renamed onto (`EPERM`), and a database another
+  connection has open cannot be deleted (`EPERM`). A file merely open for reading by Node can be
+  deleted.
+- `chmod` does not stop a read, and a read-only directory does not stop a file in it being
+  deleted.
+- A database that an access rule forbids reading, or that another process holds for its exclusive
+  use, can still be `stat`ed; opening it fails with "unable to open database file" after about
+  1.4 seconds.
+- An exclusive SQLite transaction is refused to a second process with `SQLITE_BUSY` and is free
+  within a millisecond of its holder being killed.
+- In WAL mode, the first read from another process after a write changes the bytes of `-shm`,
+  later reads do not, and no read moves its modification time. The main file and `-wal` are not
+  touched by a read, as on macOS.
+- `tasklist /FI "PID eq <pid>" /FO CSV /NH` took 139 ms, prints the image name in full, and for
+  an unknown pid prints a sentence in the system's language and exits with 0.
