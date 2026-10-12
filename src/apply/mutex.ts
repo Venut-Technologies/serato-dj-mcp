@@ -21,6 +21,12 @@ export const WRITE_LOCK_RETRY_MS = 3000;
  *
  * Within one process SQLite tracks locks per file across connections, so a
  * second acquire from the same server is refused as well.
+ *
+ * On Windows SQLite takes the lock with LockFileEx instead, and the same
+ * three properties hold. Measured 2026-10-12 on Windows 11 with Node 25.6.0:
+ * a second process is refused with `busy` while the first holds the lock,
+ * acquires it within a millisecond of the first being killed, and a second
+ * acquire inside one process is refused.
  */
 export function acquireWriteLock(
   stateDir: string,
