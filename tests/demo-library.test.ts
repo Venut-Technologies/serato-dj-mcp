@@ -1,11 +1,12 @@
 import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join, parse } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { describe, expect, it } from "vitest";
 import { makeDemoLibrary } from "../scripts/make-demo-library.js";
+import { portableIdToAbsolute } from "../src/paths.js";
 import { createServer } from "../src/server.js";
 
 const tmp = (p: string) => mkdtempSync(join(tmpdir(), p));
@@ -70,9 +71,26 @@ describe("demo library", () => {
   it("writes an audio file for every track except the missing ones", () => {
     const lib = makeDemoLibrary(tmp("serato-demo-files-"));
     const absent = lib.tracks
-      .filter((t) => !existsSync(`/${t.portableId}`))
+      .filter((t) => !existsSync(portableIdToAbsolute(lib.volumeRoot, t.portableId)))
       .map((t) => t.externalId);
     expect(absent.sort((a, b) => a - b)).toEqual([9, 29, 41, 50]);
+  });
+
+  // Serato records a track relative to its volume root, with forward
+  // slashes and no leading one -- on Windows too, where the root is the
+  // drive (measured 2026-10-12 in a store Serato created on a Windows
+  // drive). A path cut as if the root were always "/" leaves ":\Users\..."
+  // there, which names no file.
+  it("records every track relative to its volume root, with forward slashes", () => {
+    const dir = tmp("serato-demo-ids-");
+    const lib = makeDemoLibrary(dir);
+    expect(lib.volumeRoot).toBe(parse(dir).root);
+    for (const t of lib.tracks) {
+      expect(t.portableId).not.toMatch(/^\/|\\|^[A-Za-z]:/);
+      expect(t.portableId.split("/").at(-2)).toBe("Music");
+    }
+    const first = portableIdToAbsolute(lib.volumeRoot, lib.tracks[0].portableId);
+    expect(first).toBe(join(lib.musicDir, basename(first)));
   });
 
   it("answers list_crates, search_tracks and audit_library as the guide says", async () => {
