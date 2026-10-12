@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
 import { err, type SeratoError } from "./errors.js";
 import { expandHome } from "./paths.js";
 
@@ -23,14 +23,33 @@ function defaultStateDir(): string {
   return join(homedir(), "Library", "Application Support", "serato-dj-mcp");
 }
 
+/**
+ * On Windows both trees go under %LOCALAPPDATA%, where Serato keeps its own
+ * library: a per-user folder that stays on this machine. %APPDATA% follows
+ * the user to other machines in a domain, and neither a copy of the library
+ * nor a backup of this machine's databases belongs on another one. `Cache`
+ * and `State` keep the two apart for whoever cleans up by hand: the first
+ * may be deleted, the second holds the backups. LOCALAPPDATA is set in every
+ * interactive session, but an MCP client may start this process with an
+ * environment of its own making, hence the fallback to where the variable
+ * points by default.
+ */
+function windowsDataDir(env: NodeJS.ProcessEnv, kind: "Cache" | "State"): string {
+  const local = env.LOCALAPPDATA || win32.join(homedir(), "AppData", "Local");
+  return win32.join(local, "serato-dj-mcp", kind);
+}
+
 export function parseArgs(
   argv: string[],
   env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform = process.platform,
 ): Cli | { help: true } | { version: true } | SeratoError {
+  const windows = platform === "win32";
+  const home = { platform, home: homedir() };
   const cli: Cli = {
     roots: [],
-    cacheDir: defaultCacheDir(),
-    stateDir: defaultStateDir(),
+    cacheDir: windows ? windowsDataDir(env, "Cache") : defaultCacheDir(),
+    stateDir: windows ? windowsDataDir(env, "State") : defaultStateDir(),
     allowWrites: false,
     allowRawSql: false,
   };
@@ -74,8 +93,8 @@ export function parseArgs(
         // named "~" inside the process's unpredictable CWD -- MCP clients
         // start this process via execve with no shell, so the tilde never
         // gets expanded on the way in. Measured 2026-09-06.
-        else if (a === "--cache-dir") cli.cacheDir = expandHome(v);
-        else cli.stateDir = expandHome(v);
+        else if (a === "--cache-dir") cli.cacheDir = expandHome(v, home);
+        else cli.stateDir = expandHome(v, home);
         break;
       }
       default:
