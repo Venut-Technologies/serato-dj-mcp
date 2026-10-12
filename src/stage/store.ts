@@ -82,12 +82,61 @@ export function stagePath(stateDir: string, libraryId: string): string {
 }
 
 /**
+ * How long a Windows rename waits for whoever has the destination open:
+ * five more attempts, 310 ms in all. This server is synchronous, so the wait
+ * blocks every other call and is kept well under a second.
+ */
+const WINDOWS_RENAME_RETRY_DELAYS_MS: readonly number[] = [10, 20, 40, 80, 160];
+const WINDOWS_RENAME_RETRY_CODES: ReadonlySet<string> = new Set(["EPERM", "EBUSY", "EACCES"]);
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * rename(2) replaces a file that someone has open; Windows refuses to.
+ * Measured 2026-10-12 on Windows 11 with Node 25.6.0: renameSync onto a file
+ * that another handle holds open -- a plain read-only descriptor is enough --
+ * fails with EPERM, and succeeds once that handle is closed. The stage and
+ * manifest files are read without the write lock (preview_changes, a second
+ * server instance), and each such read holds the file for an instant, so on
+ * Windows a refusal is retried briefly rather than failing the call. 3000
+ * consecutive replacements with nothing else reading the file never failed
+ * (same machine, Microsoft Defender on), so the retry is for a concurrent
+ * reader, not for something seen happening on its own.
+ */
+function renameOver(from: string, to: string, platform: NodeJS.Platform): void {
+  if (platform !== "win32") {
+    renameSync(from, to);
+    return;
+  }
+  for (const delay of WINDOWS_RENAME_RETRY_DELAYS_MS) {
+    try {
+      renameSync(from, to);
+      return;
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code === undefined || !WINDOWS_RENAME_RETRY_CODES.has(code)) throw e;
+      sleepSync(delay);
+    }
+  }
+  renameSync(from, to);
+}
+
+/**
  * Temp file, fsync, rename, fsync the directory. Without the last fsync a
  * crash right after the rename can leave the directory entry pointing at the
  * old file on some filesystems; without the first, at a zero-length one.
  * Throws -- callers turn it into a value at their own boundary.
+ *
+ * `platform` is a parameter so that both branches run in the tests on every
+ * host; callers leave it alone.
  */
-export function writeFileAtomic(path: string, content: string): void {
+export function writeFileAtomic(
+  path: string,
+  content: string,
+  platform: NodeJS.Platform = process.platform,
+): void {
   const dir = dirname(path);
   mkdirSync(dir, { recursive: true });
   const tmp = join(dir, `.${randomUUID()}.tmp`);
@@ -99,11 +148,20 @@ export function writeFileAtomic(path: string, content: string): void {
     closeSync(fd);
   }
   try {
-    renameSync(tmp, path);
+    renameOver(tmp, path, platform);
   } catch (e) {
     rmSync(tmp, { force: true });
     throw e;
   }
+  // Windows has no way to flush a directory: fsync is FlushFileBuffers, which
+  // needs a handle opened for writing, and a directory cannot be opened that
+  // way. Measured 2026-10-12 on Windows 11 with Node 25.6.0: fsyncSync on a
+  // read-only descriptor, of a directory or of a file, fails with EPERM --
+  // which made every stage and manifest write fail. The file's own contents
+  // were flushed above; the rename is left to the filesystem's own journal
+  // (NTFS logs metadata changes), which is a weaker promise than the fsync
+  // below gives on POSIX and the only one available here.
+  if (platform === "win32") return;
   const dirFd = openSync(dir, "r");
   try {
     fsyncSync(dirFd);
