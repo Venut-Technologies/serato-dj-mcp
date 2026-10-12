@@ -397,9 +397,18 @@ export function makeRootFixture(
  */
 export function makeLibraryFixture(
   dir: string,
-  opts: { tracks?: TrackSeed[]; crates?: CrateSeed[] } = {},
+  opts: {
+    tracks?: TrackSeed[];
+    crates?: CrateSeed[];
+    /** See makeMasterFixture: the uri master.sqlite records for this store. */
+    connectionUri?: string;
+  } = {},
 ): { masterPath: string; rootPath: string } {
-  const masterPath = makeMasterFixture(dir, { tracks: opts.tracks, crates: opts.crates });
+  const masterPath = makeMasterFixture(dir, {
+    tracks: opts.tracks,
+    crates: opts.crates,
+    connectionUri: opts.connectionUri,
+  });
   const byExternalId = new Map((opts.tracks ?? []).map((t) => [t.externalId, t.portableId]));
   const rootPath = makeRootFixture(dir, {
     tracks: opts.tracks,

@@ -105,6 +105,41 @@ describe("stage_crate", () => {
     }
   });
 
+  // The uri form Serato writes on Windows has not been measured; a plain
+  // Windows path is the assumption (see volumeRootFromDatabaseUri). With the
+  // boot store matched by a forward slash alone, every track of a library
+  // recorded that way was refused as library_disk_unknown.
+  it("stages a track when the library's own store is named by a Windows path", async () => {
+    const { ctx } = library({
+      connectionUri: "C:\\Users\\x\\AppData\\Local\\Serato\\Library\\root.sqlite",
+    });
+    const ids = await idsByTitle(ctx);
+    const r = await stageCrate({ name: "Gigs", track_ids: [ids.get("Rain")] }, ctx);
+    if (isSeratoError(r)) throw new Error(`unexpected error: ${r.error.message}`);
+    expect(r.tracks.map((t) => t.title)).toEqual(["Rain"]);
+  });
+
+  // And a per-drive store named the same way is still another disk.
+  it("refuses a track on a Windows drive's own store", async () => {
+    const { ctx, masterPath } = library({
+      connectionUri: "C:\\Users\\x\\AppData\\Local\\Serato\\Library\\root.sqlite",
+    });
+    const m = new DatabaseSync(masterPath);
+    m.prepare("INSERT INTO location (id, path, uuid, revision) VALUES (3, NULL, NULL, 1)").run();
+    m.prepare("INSERT INTO connection (location_id, database_uri) VALUES (3, ?)").run(
+      "D:\\_Serato_\\Library\\location.sqlite",
+    );
+    const { lastInsertRowid } = m
+      .prepare(
+        "INSERT INTO asset (location_id, external_id, portable_id, file_name, name, name_norm) VALUES (3, 1, 'Music/far.flac', 'far.flac', 'Far', 'far')",
+      )
+      .run();
+    m.close();
+    const r = await stageCrate({ name: "Gigs", track_ids: [Number(lastInsertRowid)] }, ctx);
+    expect(isSeratoError(r)).toBe(true);
+    if (isSeratoError(r)) expect(r.error.details?.reason).toBe("not_on_library_disk");
+  });
+
   // A track on another volume belongs to a different location store, not to
   // this root.sqlite -- writing it here would point a crate at a track this
   // library's root.sqlite has no location row for.
