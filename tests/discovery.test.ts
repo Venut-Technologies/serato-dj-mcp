@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
 import {
+  type DiscoveryEnv,
   defaultRoots,
   detectLibrary,
   discover,
@@ -92,11 +93,101 @@ describe("discovery", () => {
 
   it("names the macOS default first", () => {
     // Full-path equality, not a suffix match: a hardcoded string ending in
-    // the right suffix would satisfy a regex without ever calling
-    // homedir(), so this proves the root is actually derived from it.
-    expect(defaultRoots()[0]).toBe(
+    // the right suffix would satisfy a regex without ever reading the home
+    // directory, so this proves the root is actually derived from it.
+    expect(defaultRoots(macos())[0]).toBe(
       join(homedir(), "Library", "Application Support", "Serato", "Library"),
     );
+  });
+});
+
+/** A macOS host with this machine's real home directory and no volumes. */
+const macos = (): DiscoveryEnv => ({
+  platform: "darwin",
+  home: homedir(),
+  localAppData: undefined,
+  exists: () => false,
+});
+
+/** A Windows host on which exactly `present` exist. Nothing here asks the
+ *  real machine about its drives. */
+const windows = (present: string[], over: Partial<DiscoveryEnv> = {}): DiscoveryEnv => ({
+  platform: "win32",
+  home: "C:\\Users\\v",
+  localAppData: "C:\\Users\\v\\AppData\\Local",
+  exists: (p) => present.includes(p),
+  ...over,
+});
+
+describe("default locations on Windows", () => {
+  // Serato's support article "Backing up and moving your library" puts the
+  // main library in %LOCALAPPDATA%\Serato\Library. It is listed whether or
+  // not it exists, so that library_not_found can say it was looked for.
+  it("names the library under LOCALAPPDATA first, and no macOS path", () => {
+    const roots = defaultRoots(windows([]));
+    expect(roots).toEqual(["C:\\Users\\v\\AppData\\Local\\Serato\\Library"]);
+  });
+
+  it("adds every drive that has a _Serato_ library, in letter order", () => {
+    const roots = defaultRoots(
+      windows(["F:\\_Serato_\\Library", "D:\\_Serato_\\Library", "Z:\\_Serato_\\Library"]),
+    );
+    expect(roots).toEqual([
+      "C:\\Users\\v\\AppData\\Local\\Serato\\Library",
+      "D:\\_Serato_\\Library",
+      "F:\\_Serato_\\Library",
+      "Z:\\_Serato_\\Library",
+    ]);
+  });
+
+  // One question per drive letter and nothing more: no listing of a drive,
+  // and no floppy letters, whose drives seek for seconds when asked.
+  it("asks each drive from C to Z exactly one question, and never A or B", () => {
+    const asked: string[] = [];
+    defaultRoots(
+      windows([], {
+        exists: (p) => {
+          asked.push(p);
+          return false;
+        },
+      }),
+    );
+    expect(asked).toEqual(
+      [..."CDEFGHIJKLMNOPQRSTUVWXYZ"].map((letter) => `${letter}:\\_Serato_\\Library`),
+    );
+  });
+
+  it("falls back to AppData\\Local under the home directory when LOCALAPPDATA is not set", () => {
+    for (const localAppData of [undefined, ""]) {
+      expect(defaultRoots(windows([], { localAppData }))[0]).toBe(
+        "C:\\Users\\v\\AppData\\Local\\Serato\\Library",
+      );
+    }
+  });
+
+  // An empty card reader or a drive that has gone away must cost that drive
+  // only, never the search.
+  it("skips a drive whose check throws instead of failing", () => {
+    const roots = defaultRoots(
+      windows([], {
+        exists: (p) => {
+          if (p.startsWith("E:")) throw new Error("EIO: device not ready");
+          return p === "G:\\_Serato_\\Library";
+        },
+      }),
+    );
+    expect(roots).toEqual([
+      "C:\\Users\\v\\AppData\\Local\\Serato\\Library",
+      "G:\\_Serato_\\Library",
+    ]);
+  });
+
+  it("reports those locations as searched when nothing is found", () => {
+    const env = windows(["D:\\_Serato_\\Library"]);
+    expect(searchLocations({ roots: [] }, env)).toEqual([
+      "C:\\Users\\v\\AppData\\Local\\Serato\\Library",
+      "D:\\_Serato_\\Library",
+    ]);
   });
 });
 
@@ -151,6 +242,7 @@ describe("resolveLibrary", () => {
   // searched[], which reads as "your library is missing" rather than "this
   // server looked nowhere".
   it("treats an empty roots list as no roots given, not as search nowhere", () => {
-    expect(searchLocations({ roots: [] })).toEqual(defaultRoots());
+    expect(searchLocations({ roots: [] }, macos())).toEqual(defaultRoots(macos()));
+    expect(searchLocations({ roots: [] }, macos())).not.toEqual([]);
   });
 });

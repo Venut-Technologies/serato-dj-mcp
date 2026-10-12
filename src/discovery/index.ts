@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { err, isSeratoError, type SeratoError } from "../errors.js";
 import { expandHome } from "../paths.js";
@@ -15,14 +15,75 @@ export type LibraryInfo = {
   error?: string;
 };
 
-/** macOS layout first, then every mounted volume's _Serato_. Both are only
- *  defaults: --library, SERATO_LIBRARY_PATH and --root all override them. */
-export function defaultRoots(): string[] {
-  const roots = [join(homedir(), "Library", "Application Support", "Serato", "Library")];
+/**
+ * What the default locations depend on. Passed in so that the Windows
+ * layout is tested on macOS and Linux and the macOS one on Windows, and so
+ * that no test has to probe the drives of the machine it runs on.
+ */
+export type DiscoveryEnv = {
+  platform: NodeJS.Platform;
+  home: string;
+  /** %LOCALAPPDATA%; undefined or empty when the environment lacks it. */
+  localAppData: string | undefined;
+  exists(path: string): boolean;
+};
+
+const hostEnv = (): DiscoveryEnv => ({
+  platform: process.platform,
+  home: homedir(),
+  localAppData: process.env.LOCALAPPDATA,
+  exists: existsSync,
+});
+
+/**
+ * C to Z. A and B are left out: they are the floppy letters, and asking a
+ * real floppy drive whether a folder exists makes it seek for seconds. A
+ * drive given one of those letters by hand is still reachable with --root.
+ */
+const WINDOWS_DRIVE_LETTERS = "CDEFGHIJKLMNOPQRSTUVWXYZ";
+
+/**
+ * The Windows layout: the main library in %LOCALAPPDATA%\Serato\Library,
+ * where Serato's own support article "Backing up and moving your library"
+ * says it is, then <drive>:\_Serato_\Library for every drive that has one
+ * -- the counterpart of /Volumes/<name>/_Serato_/Library. That per-drive
+ * folder was seen on 2026-10-12 on a drive Serato had used on Windows; the
+ * main library's location was NOT checked against an installation.
+ *
+ * Drives cannot be listed from Node, so each letter is asked one question,
+ * a single existence check with no directory listing. Measured 2026-10-12
+ * on Windows 11: the 24 checks together took under 1 ms with two letters
+ * assigned, an unassigned letter failing at once. NOT measured: a card
+ * reader with no card in it, and a mapped network drive whose server does
+ * not answer -- Windows may make the second one wait for its own network
+ * timeout, and this synchronous server cannot interrupt that. --library and
+ * --root both skip this search entirely.
+ */
+function windowsRoots(env: DiscoveryEnv): string[] {
+  const local = env.localAppData || win32.join(env.home, "AppData", "Local");
+  const roots = [win32.join(local, "Serato", "Library")];
+  for (const letter of WINDOWS_DRIVE_LETTERS) {
+    const p = `${letter}:\\_Serato_\\Library`;
+    try {
+      if (env.exists(p)) roots.push(p);
+    } catch {
+      // A drive that cannot be asked is treated as a drive without a library:
+      // looking for defaults must never be what fails a call.
+    }
+  }
+  return roots;
+}
+
+/** macOS layout first, then every mounted volume's _Serato_; on Windows,
+ *  windowsRoots above. Both are only defaults: --library,
+ *  SERATO_LIBRARY_PATH and --root all override them. */
+export function defaultRoots(env: DiscoveryEnv = hostEnv()): string[] {
+  if (env.platform === "win32") return windowsRoots(env);
+  const roots = [join(env.home, "Library", "Application Support", "Serato", "Library")];
   try {
     for (const v of readdirSync("/Volumes")) {
       const p = join("/Volumes", v, "_Serato_", "Library");
-      if (existsSync(p)) roots.push(p);
+      if (env.exists(p)) roots.push(p);
     }
   } catch {
     // /Volumes does not exist off macOS; not an error.
@@ -81,9 +142,13 @@ export function detectLibrary(dir: string): LibraryInfo | null {
  * even when *some* location, even an unusable one (e.g. a 3.x library),
  * was found.
  */
-export function searchLocations(opts: { library?: string; roots?: string[] }): string[] {
-  if (opts.library) return [expandHome(opts.library)];
-  return (rootsOf(opts) ?? defaultRoots()).map(expandHome);
+export function searchLocations(
+  opts: { library?: string; roots?: string[] },
+  env: DiscoveryEnv = hostEnv(),
+): string[] {
+  const home = { platform: env.platform, home: env.home };
+  if (opts.library) return [expandHome(opts.library, home)];
+  return (rootsOf(opts) ?? defaultRoots(env)).map((root) => expandHome(root, home));
 }
 
 /**
