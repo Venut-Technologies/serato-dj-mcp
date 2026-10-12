@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
@@ -22,6 +23,31 @@ import { stageCrate } from "../../src/tools/stage-crate.js";
 import { makeLibraryFixture, ROOT_ANCHOR_CONTAINER_ID, ROOT_SPACE_ID } from "../fixtures/make.js";
 
 const tmp = () => mkdtempSync(join(tmpdir(), "serato-apply-"));
+
+/**
+ * Makes the files in `dir` impossible to delete, and returns what undoes it.
+ *
+ * On POSIX that is a directory without write permission. On Windows a
+ * read-only directory does not stop its files being deleted (measured
+ * 2026-10-12, Windows 11, Node 25.6.0: after chmod 0o555 an rmSync inside
+ * still succeeded), so the same state is produced with access rules
+ * instead: Everyone (S-1-1-0) is denied "delete" on each file and "delete
+ * child" on the directory, either of which would otherwise permit it.
+ */
+function forbidDeletingIn(dir: string): () => void {
+  if (process.platform !== "win32") {
+    chmodSync(dir, 0o555);
+    return () => chmodSync(dir, 0o755);
+  }
+  const icacls = (...args: string[]) => execFileSync("icacls", args, { stdio: "ignore" });
+  const files = readdirSync(dir).map((name) => join(dir, name));
+  for (const file of files) icacls(file, "/deny", "*S-1-1-0:(D)");
+  icacls(dir, "/deny", "*S-1-1-0:(DC)");
+  return () => {
+    icacls(dir, "/remove:d", "*S-1-1-0");
+    for (const file of files) icacls(file, "/remove:d", "*S-1-1-0");
+  };
+}
 const nobody: ProcessProbe = { isAlive: () => false, nameOf: () => null };
 
 async function stagedLibrary(crateNames: string[] = ["Gigs 2026"]) {
@@ -280,9 +306,10 @@ describe("apply_changes", () => {
     const { ctx, masterPath, crates } = await stagedLibrary();
     lockRow(masterPath);
     const stageDir = join(ctx.stateDir, "stage");
+    let allowDeletingAgain = () => {};
     const probe: ProcessProbe = {
       isAlive: () => {
-        chmodSync(stageDir, 0o555);
+        allowDeletingAgain = forbidDeletingIn(stageDir);
         return false;
       },
       nameOf: () => null,
@@ -293,7 +320,7 @@ describe("apply_changes", () => {
       expect(r.warnings).toEqual([expect.objectContaining({ code: "stage_not_cleared" })]);
       expect(crates().map((c) => c.name)).toEqual(["Gigs 2026"]);
     } finally {
-      chmodSync(stageDir, 0o755);
+      allowDeletingAgain();
     }
   });
 

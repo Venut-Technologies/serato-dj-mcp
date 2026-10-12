@@ -48,8 +48,10 @@ describe("paths", () => {
     expect(redactPath("/Users/v/Music/a.flac", POSIX)).toBe("~/Music/a.flac");
     expect(redactPath("/Users/v", POSIX)).toBe("~");
     expect(redactPath("/Volumes/USB/a.flac", POSIX)).toBe("/Volumes/USB/a.flac");
-    // Another user whose name merely starts the same way is not under home.
-    expect(redactPath("/Users/vv/Music/a.flac", POSIX)).toBe("/Users/vv/Music/a.flac");
+    // A folder whose name merely starts the way home does is not under it.
+    expect(redactPath("/home/djs/Music/a.flac", { platform: "linux", home: "/home/dj" })).toBe(
+      "/home/djs/Music/a.flac",
+    );
     // POSIX paths are case-sensitive and know one separator.
     expect(redactPath("/users/v/Music/a.flac", POSIX)).toBe("/users/v/Music/a.flac");
     expect(redactPath("/Users/v\\Music", POSIX)).toBe("/Users/v\\Music");
