@@ -116,6 +116,10 @@ describe("paths", () => {
     expect(isRootStoreUri("/Volumes/USB/_Serato_/Library/location.sqlite")).toBe(false);
     expect(isRootStoreUri("D:\\_Serato_\\Library\\location.sqlite")).toBe(false);
     expect(isRootStoreUri("/Users/v/notroot.sqlite")).toBe(false);
+    // As the SQL LIKE this replaced did: without regard to ASCII case.
+    expect(isRootStoreUri("/Users/v/Library/Application Support/Serato/Library/ROOT.sqlite")).toBe(
+      true,
+    );
   });
 
   // portable_id is relative to the volume root and carries no leading slash.

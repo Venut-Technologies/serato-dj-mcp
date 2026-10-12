@@ -102,10 +102,15 @@ export function volumeRootFromDatabaseUri(uri: string): string {
   throw new Error(`unrecognised database_uri: ${uri}`);
 }
 
-/** Whether a database_uri names the boot disk's own store, root.sqlite, in
- *  either the measured POSIX form or the assumed Windows one. */
+/**
+ * Whether a database_uri names the boot disk's own store, root.sqlite, in
+ * either the measured POSIX form or the assumed Windows one. Case is
+ * ignored because this replaces a SQL `LIKE '%/root.sqlite'`, which ignores
+ * it for ASCII: the POSIX answer is the one that query gave.
+ */
 export function isRootStoreUri(uri: string): boolean {
-  return uri.endsWith("/root.sqlite") || uri.endsWith("\\root.sqlite");
+  const lower = uri.toLowerCase();
+  return lower.endsWith("/root.sqlite") || lower.endsWith("\\root.sqlite");
 }
 
 /**
