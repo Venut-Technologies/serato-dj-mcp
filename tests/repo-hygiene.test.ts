@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -28,7 +28,12 @@ const tracked = execFileSync("git", ["ls-files", "-z"], { cwd: ROOT, encoding: "
 // for, in the comments explaining them, so only those rules skip it. A real
 // identifier or path here would be exactly the kind of leak the identifier
 // and path rules exist to catch, so they scan this file like any other.
-const SELF_PATH = relative(ROOT, fileURLToPath(import.meta.url));
+// relative() answers with the host's separator, which on Windows is not the
+// one git uses: left as it was, this file was not recognised as itself there
+// and every pattern its comments quote was reported as a citation.
+const SELF_PATH = relative(ROOT, fileURLToPath(import.meta.url))
+  .split(sep)
+  .join("/");
 
 /** The file's text, or null if it isn't text (a NUL byte says binary). */
 function readTextOrNull(path: string): string | null {
@@ -95,6 +100,8 @@ describe("repository hygiene", () => {
   it("tracks no file list of its own that git does not know about", () => {
     // Guards the guard: an empty tracked list would make every rule vacuous.
     expect(tracked.length).toBeGreaterThan(30);
+    // And the citation rules skip exactly one file, which has to be this one.
+    expect(tracked).toContain(SELF_PATH);
   });
 
   // A SQLite blob literal in a fixture is a database identity. The two the

@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -36,7 +36,9 @@ describe("only the transport layer imports the MCP SDK", () => {
     // Guards against the whole test going vacuously green if SRC_DIR were
     // misspelled, and against the walk silently not recursing.
     expect(files).toContain("server.ts");
-    expect(files.some((f) => f.includes("/"))).toBe(true);
+    // `sep`, not "/": relative() spells a nested file with the host's own
+    // separator, and on Windows that is a backslash.
+    expect(files.some((f) => f.includes(sep))).toBe(true);
   });
 
   for (const file of files) {

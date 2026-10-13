@@ -122,6 +122,15 @@ describe("mapRow", () => {
     expect(mapRow(row, ["id", "path"], roots).path).toBe("/Users/x/Music/a.flac");
   });
 
+  // Measured 2026-10-12 in a store Serato created on a Windows drive:
+  // portable_id uses forward slashes there too, relative to the drive root.
+  it("builds a Windows path with backslashes under a Windows volume root", () => {
+    const row = { id: 1, path: "Some Folder/Artist - Title.mp3", _location_id: 3 };
+    expect(mapRow(row, ["id", "path"], new Map([[3, "D:\\"]])).path).toBe(
+      "D:\\Some Folder\\Artist - Title.mp3",
+    );
+  });
+
   // A streaming portable_id is not a filesystem path and must not be turned
   // into one.
   it("leaves a streaming id alone", () => {

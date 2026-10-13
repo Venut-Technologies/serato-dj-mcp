@@ -1,9 +1,10 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
 import { isSeratoError } from "../../src/errors.js";
+import { redactPath } from "../../src/paths.js";
 import { listLibraries } from "../../src/tools/list-libraries.js";
 import { makeMasterFixture } from "../fixtures/make.js";
 
@@ -78,7 +79,9 @@ describe("list_libraries", () => {
   it("does not redact the library path", () => {
     const dir = mkdtempSync(join(homedir(), ".serato-ll-redact-"));
     try {
-      expect(dir.startsWith(`${homedir()}/`)).toBe(true);
+      expect(dir.startsWith(`${homedir()}${sep}`)).toBe(true);
+      // The guard on the guard: redaction would have changed this path.
+      expect(redactPath(dir)).not.toBe(dir);
       makeMasterFixture(dir, { tracks: [] });
       const r = listLibraries({}, { library: dir, roots: [] });
       if (isSeratoError(r)) throw new Error("unexpected error");

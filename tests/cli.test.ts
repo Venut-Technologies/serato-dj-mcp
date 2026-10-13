@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parseArgs } from "../src/cli.js";
 import { isSeratoError } from "../src/errors.js";
@@ -16,6 +16,45 @@ describe("parseArgs", () => {
     expect(c.cacheDir).toContain("serato-dj-mcp");
     expect(c.stateDir).toContain("serato-dj-mcp");
     expect(c.cacheDir).not.toBe(c.stateDir);
+  });
+
+  // The macOS defaults are derived from the home directory, whatever host
+  // the suite runs on.
+  it("keeps snapshots and state in separate macOS trees by default", () => {
+    const c = parseArgs([], {}, "darwin");
+    if (isSeratoError(c) || "help" in c || "version" in c) throw new Error("unexpected");
+    expect(c.cacheDir).toBe(join(homedir(), "Library", "Caches", "serato-dj-mcp"));
+    expect(c.stateDir).toBe(join(homedir(), "Library", "Application Support", "serato-dj-mcp"));
+  });
+
+  // ~/Library does not exist on Windows; the per-user, per-machine folder
+  // there is %LOCALAPPDATA%, which is also where Serato keeps its library.
+  it("puts both trees under LOCALAPPDATA on Windows", () => {
+    const c = parseArgs([], { LOCALAPPDATA: "C:\\Users\\v\\AppData\\Local" }, "win32");
+    if (isSeratoError(c) || "help" in c || "version" in c) throw new Error("unexpected");
+    expect(c.cacheDir).toBe("C:\\Users\\v\\AppData\\Local\\serato-dj-mcp\\Cache");
+    expect(c.stateDir).toBe("C:\\Users\\v\\AppData\\Local\\serato-dj-mcp\\State");
+  });
+
+  // An MCP client can start the server with an environment that lacks the
+  // variable, or carries it empty; the folder it normally names is used.
+  it("falls back to AppData\\Local under the home directory when LOCALAPPDATA is not set", () => {
+    for (const env of [{}, { LOCALAPPDATA: "" }]) {
+      const c = parseArgs([], env, "win32");
+      if (isSeratoError(c) || "help" in c || "version" in c) throw new Error("unexpected");
+      expect(c.cacheDir).toBe(win32.join(homedir(), "AppData", "Local", "serato-dj-mcp", "Cache"));
+      expect(c.stateDir).toBe(win32.join(homedir(), "AppData", "Local", "serato-dj-mcp", "State"));
+    }
+  });
+
+  it("expands a leading ~ with a backslash on Windows, and not elsewhere", () => {
+    const w = parseArgs(["--cache-dir", "~\\cache", "--state-dir", "~/state"], {}, "win32");
+    if (isSeratoError(w) || "help" in w || "version" in w) throw new Error("unexpected");
+    expect(w.cacheDir).toBe(win32.join(homedir(), "cache"));
+    expect(w.stateDir).toBe(win32.join(homedir(), "state"));
+    const p = parseArgs(["--cache-dir", "~\\cache"], {}, "darwin");
+    if (isSeratoError(p) || "help" in p || "version" in p) throw new Error("unexpected");
+    expect(p.cacheDir).toBe("~\\cache");
   });
 
   it("accepts repeated --root and a single --library", () => {

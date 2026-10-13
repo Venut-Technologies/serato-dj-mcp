@@ -9,6 +9,23 @@ const FULL_DISK_ACCESS_INSTRUCTIONS =
   "On macOS, grant Full Disk Access to the process running this server " +
   "(System Settings > Privacy & Security > Full Disk Access), then retry.";
 
+/**
+ * Windows has no Full Disk Access. Both causes named here were produced on
+ * 2026-10-12 on Windows 11 with Node 25.6.0, and both end in the same
+ * "unable to open database file" about 1.4 s later, while a stat of the file
+ * still succeeds: an access rule denying this account read access, and
+ * another process holding the file open without sharing it.
+ */
+const WINDOWS_ACCESS_INSTRUCTIONS =
+  "On Windows, check that the account running this server may read the file " +
+  "(its Properties > Security tab) and that no other program has it open for " +
+  "its exclusive use, then retry.";
+
+/** What to tell the user when the library exists but cannot be opened. */
+export function permissionInstructions(platform: NodeJS.Platform = process.platform): string {
+  return platform === "win32" ? WINDOWS_ACCESS_INSTRUCTIONS : FULL_DISK_ACCESS_INSTRUCTIONS;
+}
+
 export type Snapshot = { path: string; generation: string; takenAt: number };
 
 /** While Serato is running the library changes constantly, so every call
@@ -38,7 +55,11 @@ function libraryKey(livePath: string): string {
  * Snapshots are retained "until (mtime, size) changes" -- so once a newer
  * generation of this library is published, every older one is debris.
  * Deleting a file another reader still has open is safe on macOS: the open
- * handle keeps reading the unlinked inode.
+ * handle keeps reading the unlinked inode. On Windows that deletion is
+ * refused instead (measured 2026-10-12, Node 25.6.0: rmSync of a database
+ * another connection has open fails with EPERM), which is just as safe for
+ * the reader; the file stays until the next snapshot of this library is
+ * published, whose sweep finds it again.
  *
  * Never allowed to fail a snapshot that has already succeeded: a cache
  * directory we cannot tidy is a disk-space problem, not a reason to refuse
@@ -173,7 +194,7 @@ export async function takeSnapshot(
     return err(
       "permission_denied",
       `cannot stat ${livePath}: ${e instanceof Error ? e.message : String(e)}`,
-      { instructions: FULL_DISK_ACCESS_INSTRUCTIONS },
+      { instructions: permissionInstructions() },
     );
   }
 
@@ -189,7 +210,7 @@ export async function takeSnapshot(
     // this catch therefore exists but is unreadable: "not found" sends the
     // user to --library, "denied" sends them to Full Disk Access.
     return err("permission_denied", `cannot open ${livePath}: ${msg}`, {
-      instructions: FULL_DISK_ACCESS_INSTRUCTIONS,
+      instructions: permissionInstructions(),
     });
   }
 
@@ -199,8 +220,19 @@ export async function takeSnapshot(
   // concurrent call pairs failed with "database is locked" or a disk I/O
   // error because both calls' backup() raced over one temp file.
   const tmp = join(cacheDir, `.tmp-${prefix}-${generation}-${process.pid}-${randomUUID()}.sqlite`);
+  // Never throws: it runs on the way to returning an error, and must not
+  // replace that error with its own. `force` covers a file that is not
+  // there, not one that cannot be deleted -- on Windows a file some other
+  // process has open (see evictOlderEntries). What is left behind is swept
+  // by age the next time a snapshot of this library is published.
   const cleanupTmp = () => {
-    for (const sidecar of ["", "-wal", "-shm"]) rmSync(tmp + sidecar, { force: true });
+    for (const sidecar of ["", "-wal", "-shm"]) {
+      try {
+        rmSync(tmp + sidecar, { force: true });
+      } catch {
+        // see above
+      }
+    }
   };
 
   try {
@@ -273,6 +305,14 @@ export async function takeSnapshot(
     // throw a raw Error here would break that contract and leak the temp
     // file besides.
     cleanupTmp();
+    // Another call or another server instance has published this very
+    // generation in the meantime. On POSIX the rename above simply replaces
+    // its file; on Windows it is refused for as long as anyone has that file
+    // open (measured 2026-10-12, Node 25.6.0: renameSync onto a database
+    // another connection has open fails with EPERM). The file at the final
+    // name is as good as ours: it carries the same generation, and nothing
+    // reaches that name without passing integrity_check.
+    if (existsSync(out)) return remember(livePath, { path: out, generation, takenAt: Date.now() });
     return err("snapshot_failed", `publish failed: ${e instanceof Error ? e.message : String(e)}`, {
       attempts: 1,
     });

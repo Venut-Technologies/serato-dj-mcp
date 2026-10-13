@@ -15,8 +15,9 @@
  * Nothing here is shipped: not in the npm package, not in the .mcpb bundle.
  */
 import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, parse, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
+import { portableIdToAbsolute } from "../src/paths.js";
 import { type CrateSeed, makeLibraryFixture, type TrackSeed } from "../tests/fixtures/make.js";
 
 /** Left in <dir> so a later run knows the folder is its own to replace. */
@@ -107,6 +108,9 @@ export type DemoTrack = TrackSeed & {
 export type DemoLibrary = {
   libraryDir: string;
   musicDir: string;
+  /** What every track's portableId is relative to: "/", or a drive such as
+   *  "C:\" on Windows. */
+  volumeRoot: string;
   tracks: DemoTrack[];
   crates: CrateSeed[];
 };
@@ -194,12 +198,42 @@ export function demoTracks(musicDir: string): DemoTrack[] {
 
   for (const t of tracks) {
     t.comments = `Label: ${t.label}`;
-    t.portableId = resolve(
-      musicDir,
-      `${String(t.externalId).padStart(2, "0")} ${t.artist} - ${t.name}.wav`,
-    ).slice(1);
+    t.portableId = portableIdOf(
+      resolve(musicDir, `${String(t.externalId).padStart(2, "0")} ${t.artist} - ${t.name}.wav`),
+    );
   }
   return tracks;
+}
+
+/**
+ * An absolute path as Serato records it: relative to its volume root, with
+ * forward slashes and no leading one. On POSIX the root is "/", so this is
+ * the path without its first character. On Windows the root is the drive
+ * ("C:\"), and the separators have to be turned -- measured 2026-10-12 in a
+ * location.sqlite Serato created on a Windows drive, where a file at
+ * D:\Some Folder\a.mp3 has the portable_id "Some Folder/a.mp3".
+ */
+function portableIdOf(absolute: string): string {
+  return absolute.slice(parse(absolute).root.length).split(sep).join("/");
+}
+
+/**
+ * The database_uri the demo's master.sqlite gives its one location, or
+ * undefined for the fixture's own default, the macOS boot disk. On Windows
+ * the audio files are on a drive, so the uri has to name a root.sqlite on
+ * that drive for the server to find them. Its form is an ASSUMPTION: what
+ * Serato writes there on Windows has not been measured (see
+ * volumeRootFromDatabaseUri in src/paths.ts).
+ */
+function connectionUriFor(volumeRoot: string): string | undefined {
+  if (volumeRoot === "/") return undefined;
+  if (!/^[A-Za-z]:\\$/.test(volumeRoot)) {
+    throw new Error(
+      `${volumeRoot} is not a local drive; choose a folder on one (a network share has no drive ` +
+        "for the demo library's tracks to be relative to)",
+    );
+  }
+  return `${volumeRoot}Users\\x\\AppData\\Local\\Serato\\Library\\root.sqlite`;
 }
 
 /** Crates of the Serato Library, each in a DJ's running order. */
@@ -254,6 +288,10 @@ function silentWav(): Buffer {
  */
 export function makeDemoLibrary(dir: string): DemoLibrary {
   const root = resolve(dir);
+  const volumeRoot = parse(root).root;
+  // Before anything is written: a folder this cannot work in is refused
+  // while it is still untouched.
+  const connectionUri = connectionUriFor(volumeRoot);
   if (existsSync(root) && readdirSync(root).length > 0) {
     if (!existsSync(join(root, MARKER))) {
       throw new Error(
@@ -274,10 +312,12 @@ export function makeDemoLibrary(dir: string): DemoLibrary {
 
   const tracks = demoTracks(musicDir);
   const crates = demoCrates(tracks);
-  makeLibraryFixture(libraryDir, { tracks, crates });
+  makeLibraryFixture(libraryDir, { tracks, crates, connectionUri });
   const wav = silentWav();
-  for (const t of tracks) if (t.hasFile) writeFileSync(`/${t.portableId}`, wav);
-  return { libraryDir, musicDir, tracks, crates };
+  for (const t of tracks) {
+    if (t.hasFile) writeFileSync(portableIdToAbsolute(volumeRoot, t.portableId), wav);
+  }
+  return { libraryDir, musicDir, volumeRoot, tracks, crates };
 }
 
 if (

@@ -7,6 +7,53 @@ changes.
 
 ## [Unreleased]
 
+The server now runs on Windows. That is verified on generated test libraries only: it has not
+been run against a Serato installation on Windows, and the README's
+[Windows](README.md#windows) section lists what is still an assumption.
+
+### Added
+
+- Windows support for the server's own handling of files, paths and processes, verified on
+  2026-10-12 on Windows 11 by the test suite (Node.js 22.16.0, 24.21.0 and 25.6.0) and by driving
+  the built server over stdio against the demo library:
+  - The library is looked for in `%LOCALAPPDATA%\Serato\Library` and in `_Serato_\Library` on
+    each drive from `C:` to `Z:`, so `--library` is no longer mandatory there.
+  - The cache and state directories default to `%LOCALAPPDATA%\serato-dj-mcp\Cache` and
+    `%LOCALAPPDATA%\serato-dj-mcp\State`.
+  - Track paths are built for a drive letter or a network share, and a path under the user
+    folder is shortened to `~\...` whatever its case or slashes.
+  - The check that Serato is closed reads the process name from `tasklist`, since Windows has
+    no `ps`.
+- `npm run demo-library` works on a Windows drive.
+- CI runs lint and the test suite on `windows-latest` as well.
+
+### Changed
+
+- `permission_denied` carries instructions for the platform it happened on; on Windows it no
+  longer says to grant Full Disk Access.
+- Text files check out with LF line endings on every platform (`.gitattributes`).
+
+### Fixed
+
+- On Windows, `stage_crate` and `apply_changes` always failed with `EPERM ... fsync`: a directory
+  cannot be flushed there. The directory flush is skipped on Windows and kept everywhere else.
+- On Windows, replacing the stage or manifest file while another process was reading it failed;
+  it is now retried for about 300 ms.
+- A snapshot was reported as failed when another server instance had published the same
+  snapshot a moment earlier and still had it open, which Windows turns into a refused rename. The
+  published copy is served instead.
+- A temporary file that could not be deleted while a failed snapshot was being reported turned
+  that report into an exception.
+
+### Not verified
+
+- A Serato DJ installation on Windows: reading a library it wrote, and Serato opening a crate
+  this server wrote.
+- The form of `connection.database_uri` and of the `lock` table's process name on Windows; both
+  are assumed, and the code and tests say where.
+- The Claude Desktop extension on Windows, which is still built for macOS only, and every MCP
+  client on Windows other than the test client.
+
 ## [0.1.1] - 2026-09-25
 
 Claude Desktop now sees your library's data, and the server installs from the MCP Registry, as a Claude Desktop extension, or as a Claude Code plugin.

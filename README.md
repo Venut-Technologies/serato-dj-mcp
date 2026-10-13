@@ -39,8 +39,10 @@ only what you approved.
 
 ## Install
 
-**Works on macOS.** Tested with Serato DJ Lite 4.0.9 on macOS; the test suite runs in CI on macOS
-and Linux with Node.js 22.16 and 24. **Windows is untested** — see [Compatibility](#compatibility).
+**Works on macOS.** Tested with Serato DJ Lite 4.0.9 on macOS; the test suite runs in CI on macOS,
+Linux and Windows with Node.js 22.16 and 24. **On Windows the server has only been run against
+generated test libraries, never against a Serato installation** — see
+[Compatibility](#compatibility) for what that covers and what it does not.
 The Claude Desktop extension and the Claude Code setup below were tried by hand on macOS; the
 Cursor and VS Code setups follow those editors' documentation and have not been tried.
 
@@ -102,7 +104,11 @@ Add options after `serato-dj-mcp` in `args`, for example
 
 - `--library <path>` — the Serato library folder (the one holding `master.sqlite`). Not needed on
   macOS, where the library in `~/Library/Application Support/Serato` and on mounted drives is
-  found automatically.
+  found automatically. On Windows the server looks in `%LOCALAPPDATA%\Serato\Library` and in
+  `_Serato_\Library` on each drive from `C:` to `Z:`; that has not been tried with a real
+  library, so if yours is not found, pass the folder here. In a JSON config file a Windows path
+  needs its backslashes doubled (`"C:\\Users\\you\\AppData\\Local\\Serato\\Library"`) or written
+  as forward slashes.
 - `--allow-writes` — crate writing, see below.
 - `--allow-raw-sql` — adds `run_sql`, read-only SQL for developers.
 
@@ -133,13 +139,51 @@ requests and has no telemetry.
 | **Serato DJ 4.x** | Supported. Developed and tested against Serato DJ Lite 4.0.9 (library schema 202). Other 4.x schema versions are read with a `schema_unknown` warning. Serato DJ Pro 4.x is expected to use the same library format but has not been tested. |
 | **Serato DJ 3.x** | Detected and reported, not read (it keeps a binary `database V2` instead of SQLite). |
 | **macOS** | Supported. This is where the project is developed, and CI runs on it. |
-| **Windows** | Untested. The server has no Windows-specific handling: pass `--library` explicitly, because automatic discovery only knows the macOS layout, and expect macOS-style cache and state directories under your user folder. The "is Serato running" check uses `ps`, which Windows does not have, so `apply_changes` may refuse to write rather than guess. |
+| **Windows** | Experimental: verified on generated libraries only, never with Serato. See [Windows](#windows) below. |
 | **Linux** | Serato does not run on Linux; the test suite runs there in CI on synthetic fixtures. |
-| **Node.js** | 22.16 or newer, because `backup()` from `node:sqlite` lands there. Not assumed: CI runs the whole suite on 22.16 and on 24, on macOS and on Ubuntu. |
+| **Node.js** | 22.16 or newer, because `backup()` from `node:sqlite` lands there. Not assumed: CI runs the whole suite on 22.16 and on 24, on macOS, Ubuntu and Windows. |
 | **Claude Desktop extension** | Runs in Claude Desktop's own Node.js, not yours. Checked by hand on 2026-09-24 with Claude Desktop 2.7032.0 on macOS, whose built-in Node.js is 24.21: installed, then `list_libraries` and `list_crates` answered with the library's data. |
 
 Everything this server assumes about the Serato library is written down in
 [docs/serato-4x-notes.md](docs/serato-4x-notes.md), with the measurement behind each claim.
+
+### Windows
+
+**Verified** on 2026-10-12, on Windows 11: the whole test suite passes with Node.js 25.6.0,
+24.21.0 and 22.16.0, and with 25.6.0 the built server was driven over stdio by an MCP client
+against the generated demo library (`npm run demo-library`) — `list_libraries`, `list_crates`,
+`search_tracks`, `audit_library` with and without the disk check, and with `--allow-writes` a
+crate through `stage_crate`, `preview_changes` and `apply_changes`. That exercises the server's
+own handling of Windows paths, files, locks and processes. One fact comes from a real library: in
+a per-drive store (`location.sqlite`, schema 202) that Serato created on a Windows drive, a
+track's path is recorded relative to the drive, with forward slashes.
+
+**Not verified — treat each as an assumption:**
+
+- **A Serato DJ installation on Windows.** The server has never read a library Serato wrote on
+  Windows' own disk, and has never written a crate that Serato on Windows then opened.
+- **Where Serato keeps its library.** `%LOCALAPPDATA%\Serato\Library` is taken from Serato's
+  support article on backing up a library, not from an installation.
+- **How Serato records each drive.** Track paths are built from a `database_uri` column whose
+  Windows form has not been seen. The server assumes a plain path such as
+  `D:\_Serato_\Library\location.sqlite`, with either kind of slash. If the real form differs,
+  tracks are listed without a full path, the on-disk check of `audit_library` skips them with a
+  `location_root_unknown` warning, and `stage_crate` may refuse with `library_disk_unknown`.
+- **The "is Serato running" check.** It compares the process name `tasklist` reports with the
+  name in Serato's lock table, whose Windows form has not been seen either. Names are compared
+  without `.exe` and without regard to case, any running program whose name starts with "Serato"
+  counts if the lock table points at it, and a process that cannot be identified refuses the
+  write. Whether Serato on Windows fills that table as it does on macOS is unknown: **quit Serato
+  yourself before `apply_changes`, and keep your own backup of the library.**
+- **The Claude Desktop extension**, which is built for macOS only. On Windows use the `npx` setup.
+- **Any MCP client on Windows.** The server was driven by a test client; Claude Desktop, Claude
+  Code, Cursor and VS Code were not tried there.
+
+Two differences from macOS that are by design: the cache and state directories default to
+`%LOCALAPPDATA%\serato-dj-mcp\Cache` and `%LOCALAPPDATA%\serato-dj-mcp\State`, and a path under
+your user folder is shortened to `~\...`. Looking for libraries asks each drive letter whether it
+has a `_Serato_\Library` folder; a mapped network drive whose server does not answer can make
+that slow, and `--library` skips the search.
 
 ## Read-only by default, writes on request
 
@@ -212,7 +256,8 @@ those itself.
 
 Before every write both databases are backed up under
 `<state-dir>/backups/<library-id>/<timestamp>/` (default state-dir:
-`~/Library/Application Support/serato-dj-mcp`), and the last ten are kept. A backup is taken on
+`~/Library/Application Support/serato-dj-mcp`, on Windows
+`%LOCALAPPDATA%\serato-dj-mcp\State`), and the last ten are kept. A backup is taken on
 every `apply_changes` attempt that reaches the backup step, including attempts that are then
 refused inside the transaction (a name conflict, for example) — so "the last ten" means the last
 ten *attempts*, not ten successful writes, and the newest one may already contain the write you
@@ -230,7 +275,8 @@ with that pair of paths in hand:
 3. Copy the backed-up `root.sqlite` and `master.sqlite` into the library folder, replacing the
    current ones.
 4. Delete `~/Music/_Serato_/Subcrates/<crate name>.crate` — Serato exported it after it synced
-   the crate, and copying the databases back does not remove it.
+   the crate, and copying the databases back does not remove it. (That is where the file is on
+   macOS. Where Serato on Windows exports it has not been checked.)
 
 Restoring these files also rolls back anything Serato itself recorded in the library after that
 backup was taken.
@@ -245,15 +291,17 @@ The same, as a standalone policy with the source file behind each statement:
 
 - **Everything runs on your computer.** The server is a local process your MCP client starts. It
   sends no telemetry, has no analytics, and makes no network requests. The only other program it
-  runs is `ps`, to check whether Serato is running before a write.
+  runs is `ps` (on Windows, `tasklist`), to check whether Serato is running before a write.
 - **What it reads:** Serato's library databases, always read-only except for `apply_changes`;
   with `audit_library`'s `check_filesystem: true`, the file metadata of your tracks on disk.
 - **What it writes, and where:**
-  - `--cache-dir` (default `~/Library/Caches/serato-dj-mcp`) holds a snapshot copy of your library
-    database. Safe to delete at any time.
-  - `--state-dir` (default `~/Library/Application Support/serato-dj-mcp`) holds staged crates, a
-    manifest of every write, lock files, and backups of your library databases. Only used with
-    `--allow-writes`. Deleting it deletes those backups.
+  - `--cache-dir` (default `~/Library/Caches/serato-dj-mcp`, on Windows
+    `%LOCALAPPDATA%\serato-dj-mcp\Cache`) holds a snapshot copy of your library database. Safe to
+    delete at any time.
+  - `--state-dir` (default `~/Library/Application Support/serato-dj-mcp`, on Windows
+    `%LOCALAPPDATA%\serato-dj-mcp\State`) holds staged crates, a manifest of every write, lock
+    files, and backups of your library databases. Only used with `--allow-writes`. Deleting it
+    deletes those backups.
   - With `--allow-writes`, `apply_changes` writes new crates into Serato's `root.sqlite`.
 - **What leaves your computer is up to your MCP client.** Tool results — track titles, artists,
   crate names, file paths — go to your assistant, and from there to whichever model provider the

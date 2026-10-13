@@ -1,0 +1,4 @@
+# Biome formats with LF and scripts/build-mcpb.sh runs under bash, so every
+# text file is checked out with LF whatever core.autocrlf says. Without this a
+# Windows clone with autocrlf=true fails `npm run lint` on every file.
+* text=auto eol=lf

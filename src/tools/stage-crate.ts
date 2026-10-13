@@ -8,7 +8,7 @@ import { isSqliteBusy } from "../apply/sqlite.js";
 import { parseToolArgs } from "../args.js";
 import { ok, type Warning, warningSchema } from "../envelope.js";
 import { err, isSeratoError, type SeratoError } from "../errors.js";
-import { isStreamingPortableId } from "../paths.js";
+import { isRootStoreUri, isStreamingPortableId } from "../paths.js";
 import { type ReadCtx, readSession, schemaWarnings } from "../read/session.js";
 import { sameCrateName, validateCrateName } from "../stage/name.js";
 import { loadStage, type Stage, type StagedCrate, saveStage } from "../stage/store.js";
@@ -189,14 +189,19 @@ export async function stageCrate(
 
     // The boot disk's store is the connection whose database_uri names
     // root.sqlite; a location.sqlite is another volume, with its own store
-    // this protocol does not write.
+    // this protocol does not write. Matched in isRootStoreUri rather than in
+    // SQL so that the one definition also covers a uri written with
+    // backslashes, which a LIKE '%/root.sqlite' would never match.
     const bootLocations = new Set(
       handle.schema.tables.has("connection")
         ? (
-            handle.db
-              .prepare("SELECT location_id FROM connection WHERE database_uri LIKE '%/root.sqlite'")
-              .all() as { location_id: number }[]
-          ).map((r) => r.location_id)
+            handle.db.prepare("SELECT location_id, database_uri FROM connection").all() as {
+              location_id: number;
+              database_uri: string;
+            }[]
+          )
+            .filter((r) => isRootStoreUri(r.database_uri))
+            .map((r) => r.location_id)
         : [],
     );
 

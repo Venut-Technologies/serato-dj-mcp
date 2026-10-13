@@ -14,10 +14,32 @@ import { basename, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { isSeratoError } from "../src/errors.js";
-import { stalenessKey, takeSnapshot } from "../src/snapshot/index.js";
+import { permissionInstructions, stalenessKey, takeSnapshot } from "../src/snapshot/index.js";
 import { makeMasterFixture } from "./fixtures/make.js";
 
 const tmp = () => mkdtempSync(join(tmpdir(), "serato-snap-"));
+
+/**
+ * Makes `file` exist but unreadable, and returns what undoes it.
+ *
+ * On POSIX that is mode 000. On Windows chmod only toggles the read-only
+ * attribute and never stops a read (with it, the snapshot under test simply
+ * succeeded), so the same state is produced the way Windows expresses it:
+ * an access rule denying Everyone (the well-known SID S-1-1-0, which needs
+ * no account name and no locale) the right to read. Measured 2026-10-12 on
+ * Windows 11 with Node 25.6.0: a stat of the file still succeeds and opening
+ * it fails, which is exactly the case under test.
+ */
+function denyReading(file: string): () => void {
+  if (process.platform !== "win32") {
+    chmodSync(file, 0o000);
+    return () => chmodSync(file, 0o644);
+  }
+  const icacls = (...args: string[]) =>
+    execFileSync("icacls", [file, ...args], { stdio: "ignore" });
+  icacls("/deny", "*S-1-1-0:(R)");
+  return () => icacls("/remove:d", "*S-1-1-0");
+}
 
 describe("snapshot", () => {
   it("copies a readable, integral database and reads rows from it", async () => {
@@ -124,7 +146,15 @@ describe("snapshot", () => {
     // Warm-up: the first cross-process read after the write establishes
     // this reader's mark. It is the read immediately after that mark exists
     // which rewrites -shm again; that is the one under test below.
-    runReader();
+    //
+    // Not on Windows, where it is the other way round. Measured 2026-10-12
+    // on Windows 11 with Node 25.6.0: the first cross-process read after a
+    // write changes -shm's bytes, and every later one leaves them identical
+    // -- so there the first read is the one that rewrites -shm, and a
+    // warm-up would use it up and leave the sanity check below nothing to
+    // see. (The file's mtime never moved in that measurement, for any read:
+    // -shm is written through a memory mapping.)
+    if (process.platform !== "win32") runReader();
 
     const shmBefore = readFileSync(`${live}-shm`);
     const before = stalenessKey(live);
@@ -172,11 +202,27 @@ describe("snapshot", () => {
   it("returns permission_denied when the source exists but cannot be opened", async () => {
     const dir = tmp();
     const live = makeMasterFixture(dir, { tracks: [] });
-    chmodSync(live, 0o000);
-    const r = await takeSnapshot(live, tmp());
-    chmodSync(live, 0o644);
+    const restore = denyReading(live);
+    let r: Awaited<ReturnType<typeof takeSnapshot>>;
+    try {
+      r = await takeSnapshot(live, tmp());
+    } finally {
+      restore();
+    }
     expect(isSeratoError(r)).toBe(true);
-    if (isSeratoError(r)) expect(r.error.code).toBe("permission_denied");
+    if (isSeratoError(r)) {
+      expect(r.error.code).toBe("permission_denied");
+      expect(r.error.details?.instructions).toBe(permissionInstructions(process.platform));
+    }
+  });
+
+  // "Grant Full Disk Access" sends a Windows user looking for a setting
+  // that does not exist there.
+  it("gives each platform the instructions that apply to it", () => {
+    expect(permissionInstructions("darwin")).toContain("Full Disk Access");
+    expect(permissionInstructions("linux")).toBe(permissionInstructions("darwin"));
+    expect(permissionInstructions("win32")).toContain("On Windows");
+    expect(permissionInstructions("win32")).not.toMatch(/macOS|Full Disk Access/);
   });
 
   // mkdirSync(cacheDir, { recursive: true }) used to sit before any try, so
